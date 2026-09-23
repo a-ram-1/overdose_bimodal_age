@@ -1,0 +1,2638 @@
+---
+title: "Age distribution of fatal opioid-detected overdoses in Vermont, 2009-2023"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    toc_collapsed: true
+    toc_depth: 5
+    theme: lumen
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r sourceData, echo=FALSE, message=FALSE, warning=FALSE}
+library(tigris)
+library(ggplot2)
+library(stringr)
+library(dplyr)
+library(lubridate)
+library(patchwork)
+library(tidyverse) #to replace NA with something else
+library(sf)
+library(multimode) #to calculate modes for the age plot
+library(findSVI) #for SVI calculation
+library(diptest)
+library(ggrepel)
+
+# get the most updated data files
+source("data_preprocessing/vt_processing.R")
+# set working directory -- I have to do this after sourcing the data because it loses the path otherwise
+setwd("C:\\Users\\ar2529\\Desktop\\overdose_age")
+
+```
+
+```{r importData, echo=FALSE, message=FALSE, warning=FALSE}
+
+# import vt data 
+vt_data <- read.csv("data_preprocessing/processed_data/vt_processed.csv")
+
+
+# split the dataset by year [so we can use it to split into old/young age], from https://stackoverflow.com/questions/57454085/assign-a-variable-in-r-using-another-variable
+
+for(i in unique(vt_data$Year)){
+  assign(paste0("vt_", as.character(i)), subset(vt_data, Year == as.character(i)))
+}
+
+
+# get town data from tigris so we can map deaths by town later
+
+options(tigris_use_cache=TRUE)
+vt_towns = county_subdivisions(state="Vermont")
+vt_towns$NAME = str_to_title(vt_towns$NAME)
+vt_towns = filter(vt_towns, NAME != "County Subdivisions Not Defined")
+# tigris also has shapefiles for the ocean so let's get rid of that
+vt_towns <- subset(vt_towns, ALAND!=0)
+```
+
+### Age distribution for all fatal overdoses {.tabset}
+
+#### 2009
+
+```{r age2009, echo=FALSE, message=FALSE, warning=FALSE}
+#there was an issue with the x axis not showing up when I coped the other histogram code -- resolved using https://stackoverflow.com/questions/42425195/ggplot-data-year-over-year-axis-labels-not-showing
+
+#fixed issue with colors not showing -- turns out it was because the data was numeric: https://stackoverflow.com/questions/55400037/ggplot-geom-bar-fill-not-coloring-bars-on-plot
+
+#calculate modes, see https://stackoverflow.com/questions/27418461/calculate-the-modes-in-a-multimodal-distribution-in-r
+
+# Select an appropriate bandwidth. Here we use a "rule of thumb" method
+# looks like there are some NAs in the 2009 data so I have to get rid of them
+bandwidth <- bw.nrd0(na.omit(vt_2009$age)) 
+
+# Other methods, e.g. bw.ucv(), will identify different bandwidths as optimal
+# Consequently the number (and position) of modes may differ too
+
+# Methods implemented in multimode are documented at ?bw.nrd
+
+# Calculate number of modes
+n <- nmodes(vt_2009$age, bw = bandwidth)
+
+# Calculate location of these modes
+loc <- locmodes(vt_2009$age, mod0 = n, display=TRUE)
+# Remove `, display = TRUE` if you don't want to see the KDE
+#loc
+
+# Locations of modes are odd values in loc
+modes <- loc$locations[seq(from = 1, by = 2, length.out = n)]
+antimodes <- loc$locations[seq(from = 0, by = 2, length.out = n)]
+
+# subset out "young" and "old" populations -- "young" is <= first antimode, "old" is > first antimode
+vt_2009_young <- subset(vt_2009, age <= antimodes[1])
+vt_2009_old <- subset(vt_2009, age > antimodes[1])
+
+
+# create a condition to use different colors based on the location of the antimode
+# from https://stackoverflow.com/questions/13372523/altering-the-color-of-one-value-in-a-ggplot-histogram
+# it just gives me a 0 for anything in the younger population, 1 for older
+
+vt_2009$aftermode <- vt_2009$age > antimodes[1]
+
+#added multiple mode lines to plot using https://stackoverflow.com/questions/71580196/add-horizontal-lines-from-a-vector-to-a-ggplot-uisng-facet-grid
+
+
+# a plot without mode lines or anything, with the number of people dying for each age 
+ggplot(data=vt_2009, aes(x=age, ..count..)) + 
+      geom_bar(aes(fill = as.character(aftermode)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 0), breaks = seq(min(vt_2009$age), max(vt_2009$age), by = 5), labels = seq(min(vt_2009$age), max(vt_2009$age), by = 5), minor_breaks = seq(min(vt_2009$age), max(vt_2009$age), by = 1)) + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black", size = 7/.pt) + theme_light() + ggtitle("Age distribution for 2009 VT opioid-detected overdose deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="right", axis.text.x = element_text(size = 9)) + scale_fill_manual(name = "Age group", values = c("#00BFC4", "#F8766D"), labels = c("Younger", "Older"))+xlab("Age")+ylab("Number of decedents")
+
+age_2009 <- ggplot(data=vt_2009, aes(x=age, ..count..)) + 
+      geom_bar(aes(fill = as.character(aftermode)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 0), breaks = seq(min(vt_2009$age), max(vt_2009$age), by = 5), labels = seq(min(vt_2009$age), max(vt_2009$age), by = 5), minor_breaks = seq(min(vt_2009$age), max(vt_2009$age), by = 1)) + theme_light() + geom_vline(xintercept = modes, size=1) + ggtitle("Age distribution for 2009 VT opioid-detected overdose deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="right", axis.text.x = element_text(size = 9)) + scale_fill_manual(name = "Age group", values = c("#00BFC4", "#F8766D"), labels = c("Younger", "Older"))+xlab("Age")+ylab("Number of decedents")
+
+age_2009
+
+ggsave(plot=age_2009, filename = "images/vt/age_2009.png", width = 10, height = 8)
+
+
+sprintf("Using Hartigan's dip test for bimodality, the resulting p value is %f.", dip.test(vt_2009$age)$p.value) 
+
+```
+
+#### 2010
+
+```{r age2010, echo=FALSE, message=FALSE, warning=FALSE}
+#there was an issue with the x axis not showing up when I coped the other histogram code -- resolved using https://stackoverflow.com/questions/42425195/ggplot-data-year-over-year-axis-labels-not-showing
+
+#fixed issue with colors not showing -- turns out it was because the data was numeric: https://stackoverflow.com/questions/55400037/ggplot-geom-bar-fill-not-coloring-bars-on-plot
+
+#calculate modes, see https://stackoverflow.com/questions/27418461/calculate-the-modes-in-a-multimodal-distribution-in-r
+
+# Select an appropriate bandwidth. Here we use a "rule of thumb" method
+# looks like there are some NAs in the 2010 data so I have to get rid of them
+bandwidth <- bw.nrd0(na.omit(vt_2010$age)) 
+
+# Other methods, e.g. bw.ucv(), will identify different bandwidths as optimal
+# Consequently the number (and position) of modes may differ too
+
+# Methods implemented in multimode are documented at ?bw.nrd
+
+# Calculate number of modes
+n <- nmodes(vt_2010$age, bw = bandwidth)
+
+# Calculate location of these modes
+loc <- locmodes(vt_2010$age, mod0 = n, display=TRUE)
+# Remove `, display = TRUE` if you don't want to see the KDE
+#loc
+
+# Locations of modes are odd values in loc
+modes <- loc$locations[seq(from = 1, by = 2, length.out = n)]
+antimodes <- loc$locations[seq(from = 0, by = 2, length.out = n)]
+
+# subset out "young" and "old" populations -- "young" is <= first antimode, "old" is > first antimode
+vt_2010_young <- subset(vt_2010, age <= antimodes[1])
+vt_2010_old <- subset(vt_2010, age > antimodes[1])
+
+# create a condition to use different colors based on the location of the antimode
+# from https://stackoverflow.com/questions/13372523/altering-the-color-of-one-value-in-a-ggplot-histogram
+# it just gives me a 0 for anything in the younger population, 1 for older
+
+vt_2010$aftermode <- vt_2010$age > antimodes[1]
+
+#added multiple mode lines to plot using https://stackoverflow.com/questions/71580196/add-horizontal-lines-from-a-vector-to-a-ggplot-uisng-facet-grid
+
+
+# a plot without mode lines or anything, with the number of people dying for each age 
+ggplot(data=vt_2010, aes(x=age, ..count..)) + 
+      geom_bar(aes(fill = as.character(aftermode)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 0),  breaks = seq(min(vt_2010$age), max(vt_2010$age), by = 5), labels = seq(min(vt_2010$age), max(vt_2010$age), by = 5), minor_breaks = seq(min(vt_2010$age), max(vt_2010$age), by = 1)) + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black", size = 7/.pt) + theme_light() + ggtitle("Age distribution for 2010 VT opioid-detected overdose deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="right", axis.text.x = element_text(size = 9)) + scale_fill_manual(name = "Age group", values = c("#00BFC4", "#F8766D"), labels = c("Younger", "Older"))+xlab("Age")+ylab("Number of decedents")
+
+age_2010 <- ggplot(data=vt_2010, aes(x=age, ..count..)) + 
+      geom_bar(aes(fill = as.character(aftermode)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 0),  breaks = seq(min(vt_2010$age), max(vt_2010$age), by = 5), labels = seq(min(vt_2010$age), max(vt_2010$age), by = 5), minor_breaks = seq(min(vt_2010$age), max(vt_2010$age), by = 1)) + theme_light() + geom_vline(xintercept = modes, size=1) + ggtitle("Age distribution for 2010 VT opioid-detected overdose deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="right", axis.text.x = element_text(size = 9)) + scale_fill_manual(name = "Age group", values = c("#00BFC4", "#F8766D"), labels = c("Younger", "Older"))+xlab("Age")+ylab("Number of decedents")
+
+age_2010
+
+ggsave(plot=age_2010, filename = "images/vt/age_2010.png", width = 10, height = 8)
+
+
+sprintf("Using Hartigan's dip test for bimodality, the resulting p value is %f.", dip.test(vt_2010$age)$p.value) 
+
+ 
+```
+
+
+#### 2011
+
+```{r age2011, echo=FALSE, message=FALSE, warning=FALSE}
+#there was an issue with the x axis not showing up when I coped the other histogram code -- resolved using https://stackoverflow.com/questions/42425195/ggplot-data-year-over-year-axis-labels-not-showing
+
+#fixed issue with colors not showing -- turns out it was because the data was numeric: https://stackoverflow.com/questions/55400037/ggplot-geom-bar-fill-not-coloring-bars-on-plot
+
+#calculate modes, see https://stackoverflow.com/questions/27418461/calculate-the-modes-in-a-multimodal-distribution-in-r
+
+# Select an appropriate bandwidth. Here we use a "rule of thumb" method
+# looks like there are some NAs in the 2011 data so I have to get rid of them
+bandwidth <- bw.nrd0(na.omit(vt_2011$age)) 
+
+# Other methods, e.g. bw.ucv(), will identify different bandwidths as optimal
+# Consequently the number (and position) of modes may differ too
+
+# Methods implemented in multimode are documented at ?bw.nrd
+
+# Calculate number of modes
+n <- nmodes(vt_2011$age, bw = bandwidth)
+
+# Calculate location of these modes
+loc <- locmodes(vt_2011$age, mod0 = n, display=TRUE)
+# Remove `, display = TRUE` if you don't want to see the KDE
+#loc
+
+# Locations of modes are odd values in loc
+modes <- loc$locations[seq(from = 1, by = 2, length.out = n)]
+antimodes <- loc$locations[seq(from = 0, by = 2, length.out = n)]
+
+# subset out "young" and "old" populations -- "young" is <= first antimode, "old" is > first antimode
+vt_2011_young <- subset(vt_2011, age <= antimodes[1])
+vt_2011_old <- subset(vt_2011, age > antimodes[1])
+
+
+# create a condition to use different colors based on the location of the antimode
+# from https://stackoverflow.com/questions/13372523/altering-the-color-of-one-value-in-a-ggplot-histogram
+# it just gives me a 0 for anything in the younger population, 1 for older
+
+vt_2011$aftermode <- vt_2011$age > antimodes[1]
+
+#added multiple mode lines to plot using https://stackoverflow.com/questions/71580196/add-horizontal-lines-from-a-vector-to-a-ggplot-uisng-facet-grid
+
+
+# a plot without mode lines or anything, with the number of people dying for each age 
+ggplot(data=vt_2011, aes(x=age, ..count..)) + 
+      geom_bar(aes(fill = as.character(aftermode)), position = "dodge") +scale_x_continuous(guide = guide_axis(angle = 0),  breaks = seq(min(vt_2011$age), max(vt_2011$age), by = 5), labels = seq(min(vt_2011$age), max(vt_2011$age), by = 5), minor_breaks = seq(min(vt_2011$age), max(vt_2011$age), by = 1)) + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black", size = 7/.pt) + theme_light() + ggtitle("Age distribution for 2011 VT opioid-detected overdose deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 9)) + scale_fill_manual(name = "Age group", values = c("#00BFC4", "#F8766D"), labels = c("Younger", "Older"))+xlab("Age")+ylab("Number of decedents")
+
+age_2011 <- ggplot(data=vt_2011, aes(x=age, ..count..)) + 
+      geom_bar(aes(fill = as.character(aftermode)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 0),  breaks = seq(min(vt_2011$age), max(vt_2011$age), by = 5), labels = seq(min(vt_2011$age), max(vt_2011$age), by = 5), minor_breaks = seq(min(vt_2011$age), max(vt_2011$age), by = 1)) + theme_light() + geom_vline(xintercept = modes, size=1) + ggtitle("Age distribution for 2011 VT opioid-detected overdose deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 9)) + scale_fill_manual(name = "Age group", values = c("#00BFC4", "#F8766D"), labels = c("Younger", "Older"))+xlab("Age")+ylab("Number of decedents")
+
+age_2011
+
+ggsave(plot=age_2011, filename = "images/vt/age_2011.png", width = 10, height = 8)
+
+sprintf("Using Hartigan's dip test for bimodality, the resulting p value is %f.", dip.test(vt_2011$age)$p.value) 
+
+ 
+```
+
+
+#### 2012
+
+```{r age2012, echo=FALSE, message=FALSE, warning=FALSE}
+#there was an issue with the x axis not showing up when I coped the other histogram code -- resolved using https://stackoverflow.com/questions/42425195/ggplot-data-year-over-year-axis-labels-not-showing
+
+#fixed issue with colors not showing -- turns out it was because the data was numeric: https://stackoverflow.com/questions/55400037/ggplot-geom-bar-fill-not-coloring-bars-on-plot
+
+#calculate modes, see https://stackoverflow.com/questions/27418461/calculate-the-modes-in-a-multimodal-distribution-in-r
+
+# Select an appropriate bandwidth. Here we use a "rule of thumb" method
+# looks like there are some NAs in the 2012 data so I have to get rid of them
+bandwidth <- bw.nrd0(na.omit(vt_2012$age)) 
+
+# Other methods, e.g. bw.ucv(), will identify different bandwidths as optimal
+# Consequently the number (and position) of modes may differ too
+
+# Methods implemented in multimode are documented at ?bw.nrd
+
+# Calculate number of modes
+n <- nmodes(vt_2012$age, bw = bandwidth)
+
+# Calculate location of these modes
+loc <- locmodes(vt_2012$age, mod0 = n, display=TRUE)
+# Remove `, display = TRUE` if you don't want to see the KDE
+#loc
+
+# Locations of modes are odd values in loc
+modes <- loc$locations[seq(from = 1, by = 2, length.out = n)]
+antimodes <- loc$locations[seq(from = 0, by = 2, length.out = n)]
+
+# subset out "young" and "old" populations -- "young" is <= first antimode, "old" is > first antimode
+vt_2012_young <- subset(vt_2012, age <= antimodes[1])
+vt_2012_old <- subset(vt_2012, age > antimodes[1])
+
+# create a condition to use different colors based on the location of the antimode
+# from https://stackoverflow.com/questions/13372523/altering-the-color-of-one-value-in-a-ggplot-histogram
+# it just gives me a 0 for anything in the younger population, 1 for older
+
+vt_2012$aftermode <- vt_2012$age > antimodes[1]
+
+#added multiple mode lines to plot using https://stackoverflow.com/questions/71580196/add-horizontal-lines-from-a-vector-to-a-ggplot-uisng-facet-grid
+
+
+# a plot without mode lines or anything, with the number of people dying for each age 
+ggplot(data=vt_2012, aes(x=age, ..count..)) + 
+      geom_bar(aes(fill = as.character(aftermode)), position = "dodge") +  scale_x_continuous(guide = guide_axis(angle = 0),  breaks = seq(min(vt_2012$age), max(vt_2012$age), by = 5), labels = seq(min(vt_2012$age), max(vt_2012$age), by = 5), minor_breaks = seq(min(vt_2012$age), max(vt_2012$age), by = 1)) + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black", size = 7/.pt) + theme_light() + ggtitle("Age distribution for 2012 VT opioid-detected overdose deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="right", axis.text.x = element_text(size = 9)) + scale_fill_manual(name = "Age group", values = c("#00BFC4", "#F8766D"), labels = c("Younger", "Older"))+xlab("Age")+ylab("Number of decedents")
+
+age_2012 <- ggplot(data=vt_2012, aes(x=age, ..count..)) + 
+      geom_bar(aes(fill = as.character(aftermode)), position = "dodge") +  scale_x_continuous(guide = guide_axis(angle = 0),  breaks = seq(min(vt_2012$age), max(vt_2012$age), by = 5), labels = seq(min(vt_2012$age), max(vt_2012$age), by = 5), minor_breaks = seq(min(vt_2012$age), max(vt_2012$age), by = 1)) + theme_light() + geom_vline(xintercept = modes, size=1) + ggtitle("Age distribution for 2012 VT opioid-detected overdose deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="right", axis.text.x = element_text(size = 9)) + scale_fill_manual(name = "Age group", values = c("#00BFC4", "#F8766D"), labels = c("Younger", "Older"))+xlab("Age")+ylab("Number of decedents")
+
+age_2012
+
+ggsave(plot=age_2012, filename = "images/vt/age_2012.png", width = 10, height = 8)
+
+
+sprintf("Using Hartigan's dip test for bimodality, the resulting p value is %f.", dip.test(vt_2012$age)$p.value) 
+
+ 
+```
+
+
+#### 2013
+
+```{r age2013, echo=FALSE, message=FALSE, warning=FALSE}
+#there was an issue with the x axis not showing up when I coped the other histogram code -- resolved using https://stackoverflow.com/questions/42425195/ggplot-data-year-over-year-axis-labels-not-showing
+
+#fixed issue with colors not showing -- turns out it was because the data was numeric: https://stackoverflow.com/questions/55400037/ggplot-geom-bar-fill-not-coloring-bars-on-plot
+
+#calculate modes, see https://stackoverflow.com/questions/27418461/calculate-the-modes-in-a-multimodal-distribution-in-r
+
+# Select an appropriate bandwidth. Here we use a "rule of thumb" method
+# looks like there are some NAs in the 2013 data so I have to get rid of them
+bandwidth <- bw.nrd0(na.omit(vt_2013$age)) 
+
+# Other methods, e.g. bw.ucv(), will identify different bandwidths as optimal
+# Consequently the number (and position) of modes may differ too
+
+# Methods implemented in multimode are documented at ?bw.nrd
+
+# Calculate number of modes
+n <- nmodes(vt_2013$age, bw = bandwidth)
+
+# Calculate location of these modes
+loc <- locmodes(vt_2013$age, mod0 = n, display=TRUE)
+# Remove `, display = TRUE` if you don't want to see the KDE
+#loc
+
+# Locations of modes are odd values in loc
+modes <- loc$locations[seq(from = 1, by = 2, length.out = n)]
+antimodes <- loc$locations[seq(from = 0, by = 2, length.out = n)]
+
+# subset out "young" and "old" populations -- "young" is <= first antimode, "old" is > first antimode
+vt_2013_young <- subset(vt_2013, age <= antimodes[1])
+vt_2013_old <- subset(vt_2013, age > antimodes[1])
+
+
+# create a condition to use different colors based on the location of the antimode
+# from https://stackoverflow.com/questions/13372523/altering-the-color-of-one-value-in-a-ggplot-histogram
+# it just gives me a 0 for anything in the younger population, 1 for older
+
+vt_2013$aftermode <- vt_2013$age > antimodes[1]
+
+#added multiple mode lines to plot using https://stackoverflow.com/questions/71580196/add-horizontal-lines-from-a-vector-to-a-ggplot-uisng-facet-grid
+
+
+# a plot without mode lines or anything, with the number of people dying for each age 
+ggplot(data=vt_2013, aes(x=age, ..count..)) + 
+      geom_bar(aes(fill = as.character(aftermode)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 0),  breaks = seq(min(vt_2013$age), max(vt_2013$age), by = 5), labels = seq(min(vt_2013$age), max(vt_2013$age), by = 5), minor_breaks = seq(min(vt_2013$age), max(vt_2013$age), by = 1)) + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black", size = 7/.pt) + theme_light() + ggtitle("Age distribution for 2013 VT opioid-detected overdose deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="right", axis.text.x = element_text(size = 9)) + scale_fill_manual(name = "Age group", values = c("#00BFC4", "#F8766D"), labels = c("Younger", "Older"))+xlab("Age")+ylab("Number of decedents")
+
+age_2013 <- ggplot(data=vt_2013, aes(x=age, ..count..)) + 
+      geom_bar(aes(fill = as.character(aftermode)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 0),  breaks = seq(min(vt_2013$age), max(vt_2013$age), by = 5), labels = seq(min(vt_2013$age), max(vt_2013$age), by = 5), minor_breaks = seq(min(vt_2013$age), max(vt_2013$age), by = 1)) + theme_light() + geom_vline(xintercept = modes, size=1) + ggtitle("Age distribution for 2013 VT opioid-detected overdose deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="right", axis.text.x = element_text(size = 9)) + scale_fill_manual(name = "Age group", values = c("#00BFC4", "#F8766D"), labels = c("Younger", "Older"))+xlab("Age")+ylab("Number of decedents")
+
+age_2013
+
+ggsave(plot=age_2013, filename = "images/vt/age_2013.png", width = 10, height = 8)
+
+
+sprintf("Using Hartigan's dip test for bimodality, the resulting p value is %f.", dip.test(vt_2013$age)$p.value) 
+
+ 
+```
+
+
+#### 2014
+
+```{r age2014, echo=FALSE, message=FALSE, warning=FALSE}
+#there was an issue with the x axis not showing up when I coped the other histogram code -- resolved using https://stackoverflow.com/questions/42425195/ggplot-data-year-over-year-axis-labels-not-showing
+
+#fixed issue with colors not showing -- turns out it was because the data was numeric: https://stackoverflow.com/questions/55400037/ggplot-geom-bar-fill-not-coloring-bars-on-plot
+
+#calculate modes, see https://stackoverflow.com/questions/27418461/calculate-the-modes-in-a-multimodal-distribution-in-r
+
+# Select an appropriate bandwidth. Here we use a "rule of thumb" method
+# looks like there are some NAs in the 2014 data so I have to get rid of them
+bandwidth <- bw.nrd0(na.omit(vt_2014$age)) 
+
+# Other methods, e.g. bw.ucv(), will identify different bandwidths as optimal
+# Consequently the number (and position) of modes may differ too
+
+# Methods implemented in multimode are documented at ?bw.nrd
+
+# Calculate number of modes
+n <- nmodes(vt_2014$age, bw = bandwidth)
+
+# Calculate location of these modes
+loc <- locmodes(vt_2014$age, mod0 = n, display=TRUE)
+# Remove `, display = TRUE` if you don't want to see the KDE
+#loc
+
+# Locations of modes are odd values in loc
+modes <- loc$locations[seq(from = 1, by = 2, length.out = n)]
+antimodes <- loc$locations[seq(from = 0, by = 2, length.out = n)]
+
+# subset out "young" and "old" populations -- "young" is <= first antimode, "old" is > first antimode
+# I am using the second antimode here because the first one is not informative!!
+vt_2014_young <- subset(vt_2014, age <= antimodes[1])
+vt_2014_old <- subset(vt_2014, age > antimodes[1])
+
+
+# create a condition to use different colors based on the location of the antimode
+# from https://stackoverflow.com/questions/13372523/altering-the-color-of-one-value-in-a-ggplot-histogram
+# it just gives me a 0 for anything in the younger population, 1 for older
+
+vt_2014$aftermode <- vt_2014$age > antimodes[1]
+
+#added multiple mode lines to plot using https://stackoverflow.com/questions/71580196/add-horizontal-lines-from-a-vector-to-a-ggplot-uisng-facet-grid
+
+
+# a plot without mode lines or anything, with the number of people dying for each age 
+ggplot(data=vt_2014, aes(x=age, ..count..)) + 
+      geom_bar(aes(fill = as.character(aftermode)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 0),  breaks = seq(min(vt_2014$age), max(vt_2014$age), by = 5), labels = seq(min(vt_2014$age), max(vt_2014$age), by = 5), minor_breaks = seq(min(vt_2014$age), max(vt_2014$age), by = 1)) + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black", size = 7/.pt) + theme_light() + ggtitle("Age distribution for 2014 VT opioid-detected overdose deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="right", axis.text.x = element_text(size = 9)) + scale_fill_manual(name = "Age group", values = c("#00BFC4", "#F8766D"), labels = c("Younger", "Older"))+xlab("Age")+ylab("Number of decedents")
+
+age_2014 <- ggplot(data=vt_2014, aes(x=age, ..count..)) + 
+      geom_bar(aes(fill = as.character(aftermode)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 0),  breaks = seq(min(vt_2014$age), max(vt_2014$age), by = 5), labels = seq(min(vt_2014$age), max(vt_2014$age), by = 5), minor_breaks = seq(min(vt_2014$age), max(vt_2014$age), by = 1)) + theme_light() + geom_vline(xintercept = modes, size=1) + ggtitle("Age distribution for 2014 VT opioid-detected overdose deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="right", axis.text.x = element_text(size = 9)) + scale_fill_manual(name = "Age group", values = c("#00BFC4", "#F8766D"), labels = c("Younger", "Older"))+xlab("Age")+ylab("Number of decedents")
+
+age_2014
+
+ggsave(plot=age_2014, filename = "images/vt/age_2014.png", width = 10, height = 8)
+
+sprintf("Using Hartigan's dip test for bimodality, the resulting p value is %f.", dip.test(vt_2014$age)$p.value) 
+
+```
+
+#### 2015
+
+
+```{r age2015, echo=FALSE, message=FALSE, warning=FALSE}
+#there was an issue with the x axis not showing up when I coped the other histogram code -- resolved using https://stackoverflow.com/questions/42425195/ggplot-data-year-over-year-axis-labels-not-showing
+
+#fixed issue with colors not showing -- turns out it was because the data was numeric: https://stackoverflow.com/questions/55400037/ggplot-geom-bar-fill-not-coloring-bars-on-plot
+
+#calculate modes, see https://stackoverflow.com/questions/27418461/calculate-the-modes-in-a-multimodal-distribution-in-r
+
+# Select an appropriate bandwidth. Here we use a "rule of thumb" method
+# looks like there are some NAs in the 2015 data so I have to get rid of them
+bandwidth <- bw.nrd0(na.omit(vt_2015$age)) 
+
+# Other methods, e.g. bw.ucv(), will identify different bandwidths as optimal
+# Consequently the number (and position) of modes may differ too
+
+# Methods implemented in multimode are documented at ?bw.nrd
+
+# Calculate number of modes
+n <- nmodes(vt_2015$age, bw = bandwidth)
+
+# Calculate location of these modes
+loc <- locmodes(vt_2015$age, mod0 = n, display=TRUE)
+# Remove `, display = TRUE` if you don't want to see the KDE
+#loc
+
+# Locations of modes are odd values in loc
+modes <- loc$locations[seq(from = 1, by = 2, length.out = n)]
+antimodes <- loc$locations[seq(from = 0, by = 2, length.out = n)]
+
+# subset out "young" and "old" populations -- "young" is <= first antimode, "old" is > first antimode
+
+# THIS IS A UNIMODAL DISTRIBUTION! NOT INCLUDING? 
+vt_2015_young <- subset(vt_2015, age <= antimodes[1])
+vt_2015_old <- subset(vt_2015, age > antimodes[1])
+
+
+
+# create a condition to use different colors based on the location of the antimode
+# from https://stackoverflow.com/questions/13372523/altering-the-color-of-one-value-in-a-ggplot-histogram
+# it just gives me a 0 for anything in the younger population, 1 for older
+
+vt_2015$aftermode <- vt_2015$age > antimodes[1]
+
+#added multiple mode lines to plot using https://stackoverflow.com/questions/71580196/add-horizontal-lines-from-a-vector-to-a-ggplot-uisng-facet-grid
+
+
+# a plot without mode lines or anything, with the number of people dying for each age 
+ggplot(data=vt_2015, aes(x=age, ..count..)) + 
+      geom_bar(aes(fill = as.character(aftermode)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 0),  breaks = seq(min(vt_2015$age), max(vt_2015$age), by = 5), labels = seq(min(vt_2015$age), max(vt_2015$age), by = 5), minor_breaks = seq(min(vt_2015$age), max(vt_2015$age), by = 1)) + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black", size = 7/.pt) + theme_light() + ggtitle("Age distribution for 2015 VT opioid-detected overdose deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="right", axis.text.x = element_text(size = 9)) + scale_fill_manual(name = "Age group", values = c("#00BFC4", "#F8766D"), labels = c("Younger", "Older"))+xlab("Age")+ylab("Number of decedents")
+
+age_2015 <- ggplot(data=vt_2015, aes(x=age, ..count..)) + 
+      geom_bar(aes(fill = as.character(aftermode)), position = "dodge") +scale_x_continuous(guide = guide_axis(angle = 0),  breaks = seq(min(vt_2015$age), max(vt_2015$age), by = 5), labels = seq(min(vt_2015$age), max(vt_2015$age), by = 5), minor_breaks = seq(min(vt_2015$age), max(vt_2015$age), by = 1)) + theme_light() + geom_vline(xintercept = modes, size=1) + ggtitle("Age distribution for 2015 VT opioid-detected overdose deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="right", axis.text.x = element_text(size = 9)) + scale_fill_manual(name = "Age group", values = c("#00BFC4", "#F8766D"), labels = c("Younger", "Older"))+xlab("Age")+ylab("Number of decedents")
+
+age_2015
+
+ggsave(plot=age_2015, filename = "images/vt/age_2015.png", width = 10, height = 8)
+
+
+sprintf("Using Hartigan's dip test for bimodality, the resulting p value is %f.", dip.test(vt_2015$age)$p.value) 
+
+ 
+```
+
+
+#### 2016
+
+```{r age2016, echo=FALSE, message=FALSE, warning=FALSE}
+#there was an issue with the x axis not showing up when I coped the other histogram code -- resolved using https://stackoverflow.com/questions/42425195/ggplot-data-year-over-year-axis-labels-not-showing
+
+#fixed issue with colors not showing -- turns out it was because the data was numeric: https://stackoverflow.com/questions/55400037/ggplot-geom-bar-fill-not-coloring-bars-on-plot
+
+#calculate modes, see https://stackoverflow.com/questions/27418461/calculate-the-modes-in-a-multimodal-distribution-in-r
+
+# Select an appropriate bandwidth. Here we use a "rule of thumb" method
+# looks like there are some NAs in the 2016 data so I have to get rid of them
+bandwidth <- bw.nrd0(na.omit(vt_2016$age)) 
+
+# Other methods, e.g. bw.ucv(), will identify different bandwidths as optimal
+# Consequently the number (and position) of modes may differ too
+
+# Methods implemented in multimode are documented at ?bw.nrd
+
+# Calculate number of modes
+n <- nmodes(vt_2016$age, bw = bandwidth)
+
+# Calculate location of these modes
+loc <- locmodes(vt_2016$age, mod0 = n, display=TRUE)
+# Remove `, display = TRUE` if you don't want to see the KDE
+#loc
+
+# Locations of modes are odd values in loc
+modes <- loc$locations[seq(from = 1, by = 2, length.out = n)]
+antimodes <- loc$locations[seq(from = 0, by = 2, length.out = n)]
+
+# subset out "young" and "old" populations -- "young" is <= first antimode, "old" is > first antimode
+vt_2016_young <- subset(vt_2016, age <= antimodes[1])
+vt_2016_old <- subset(vt_2016, age > antimodes[1])
+
+
+# create a condition to use different colors based on the location of the antimode
+# from https://stackoverflow.com/questions/13372523/altering-the-color-of-one-value-in-a-ggplot-histogram
+# it just gives me a 0 for anything in the younger population, 1 for older
+
+vt_2016$aftermode <- vt_2016$age > antimodes[1]
+
+#added multiple mode lines to plot using https://stackoverflow.com/questions/71580196/add-horizontal-lines-from-a-vector-to-a-ggplot-uisng-facet-grid
+
+
+# a plot without mode lines or anything, with the number of people dying for each age 
+ggplot(data=vt_2016, aes(x=age, ..count..)) + 
+      geom_bar(aes(fill = as.character(aftermode)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 0),  breaks = seq(min(vt_2016$age), max(vt_2016$age), by = 5), labels = seq(min(vt_2016$age), max(vt_2016$age), by = 5), minor_breaks = seq(min(vt_2016$age), max(vt_2016$age), by = 1)) + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black", size = 7/.pt) + theme_light() + ggtitle("Age distribution for 2016 VT opioid-detected overdose deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 9)) + scale_fill_manual(name = "Age group", values = c("#00BFC4", "#F8766D"), labels = c("Younger", "Older"))+xlab("Age")+ylab("Number of decedents")
+
+age_2016 <- ggplot(data=vt_2016, aes(x=age, ..count..)) + 
+      geom_bar(aes(fill = as.character(aftermode)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 0),  breaks = seq(min(vt_2016$age), max(vt_2016$age), by = 5), labels = seq(min(vt_2016$age), max(vt_2016$age), by = 5), minor_breaks = seq(min(vt_2016$age), max(vt_2016$age), by = 1)) + theme_light() + geom_vline(xintercept = modes, size=1) + ggtitle("Age distribution for 2016 VT opioid-detected overdose deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 9)) + scale_fill_manual(name = "Age group", values = c("#00BFC4", "#F8766D"), labels = c("Younger", "Older"))+xlab("Age")+ylab("Number of decedents")
+
+age_2016
+
+ggsave(plot=age_2016, filename = "images/vt/age_2016.png", width = 10, height = 8)
+
+
+sprintf("Using Hartigan's dip test for bimodality, the resulting p value is %f.", dip.test(vt_2016$age)$p.value) 
+
+ 
+```
+
+
+#### 2017
+
+```{r age2017, echo=FALSE, message=FALSE, warning=FALSE}
+#there was an issue with the x axis not showing up when I coped the other histogram code -- resolved using https://stackoverflow.com/questions/42425195/ggplot-data-year-over-year-axis-labels-not-showing
+
+#fixed issue with colors not showing -- turns out it was because the data was numeric: https://stackoverflow.com/questions/55400037/ggplot-geom-bar-fill-not-coloring-bars-on-plot
+
+#calculate modes, see https://stackoverflow.com/questions/27418461/calculate-the-modes-in-a-multimodal-distribution-in-r
+
+# Select an appropriate bandwidth. Here we use a "rule of thumb" method
+# looks like there are some NAs in the 2017 data so I have to get rid of them
+bandwidth <- bw.nrd0(na.omit(vt_2017$age)) 
+
+# Other methods, e.g. bw.ucv(), will identify different bandwidths as optimal
+# Consequently the number (and position) of modes may differ too
+
+# Methods implemented in multimode are documented at ?bw.nrd
+
+# Calculate number of modes
+n <- nmodes(vt_2017$age, bw = bandwidth)
+
+# Calculate location of these modes
+loc <- locmodes(vt_2017$age, mod0 = n, display=TRUE)
+# Remove `, display = TRUE` if you don't want to see the KDE
+#loc
+
+# Locations of modes are odd values in loc
+modes <- loc$locations[seq(from = 1, by = 2, length.out = n)]
+antimodes <- loc$locations[seq(from = 0, by = 2, length.out = n)]
+
+# subset out "young" and "old" populations -- "young" is <= first antimode, "old" is > first antimode
+vt_2017_young <- subset(vt_2017, age <= antimodes[1])
+vt_2017_old <- subset(vt_2017, age > antimodes[1])
+
+
+# create a condition to use different colors based on the location of the antimode
+# from https://stackoverflow.com/questions/13372523/altering-the-color-of-one-value-in-a-ggplot-histogram
+# it just gives me a 0 for anything in the younger population, 1 for older
+
+vt_2017$aftermode <- vt_2017$age > antimodes[1]
+
+#added multiple mode lines to plot using https://stackoverflow.com/questions/71580196/add-horizontal-lines-from-a-vector-to-a-ggplot-uisng-facet-grid
+
+
+# a plot without mode lines or anything, with the number of people dying for each age 
+ggplot(data=vt_2017, aes(x=age, ..count..)) + 
+      geom_bar(aes(fill = as.character(aftermode)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 0),  breaks = seq(min(vt_2017$age), max(vt_2017$age), by = 5), labels = seq(min(vt_2017$age), max(vt_2017$age), by = 5), minor_breaks = seq(min(vt_2017$age), max(vt_2017$age), by = 1)) + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black", size = 7/.pt) + theme_light() + ggtitle("Age distribution for 2017 VT opioid-detected overdose deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="right", axis.text.x = element_text(size = 9)) + scale_fill_manual(name = "Age group", values = c("#00BFC4", "#F8766D"), labels = c("Younger", "Older"))+xlab("Age")+ylab("Number of decedents")
+
+age_2017 <- ggplot(data=vt_2017, aes(x=age, ..count..)) + 
+      geom_bar(aes(fill = as.character(aftermode)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 0),  breaks = seq(min(vt_2017$age), max(vt_2017$age), by = 5), labels = seq(min(vt_2017$age), max(vt_2017$age), by = 5), minor_breaks = seq(min(vt_2017$age), max(vt_2017$age), by = 1)) + theme_light() + geom_vline(xintercept = modes, size=1) + ggtitle("Age distribution for 2017 VT opioid-detected overdose deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="right", axis.text.x = element_text(size = 9)) + scale_fill_manual(name = "Age group", values = c("#00BFC4", "#F8766D"), labels = c("Younger", "Older"))+xlab("Age")+ylab("Number of decedents")
+
+age_2017
+
+ggsave(plot=age_2017, filename = "images/vt/age_2017.png", width = 10, height = 8)
+
+
+sprintf("Using Hartigan's dip test for bimodality, the resulting p value is %f.", dip.test(vt_2017$age)$p.value) 
+
+```
+
+#### 2018
+
+```{r age2018, echo=FALSE, message=FALSE, warning=FALSE}
+#there was an issue with the x axis not showing up when I coped the other histogram code -- resolved using https://stackoverflow.com/questions/42425195/ggplot-data-year-over-year-axis-labels-not-showing
+
+#fixed issue with colors not showing -- turns out it was because the data was numeric: https://stackoverflow.com/questions/55400037/ggplot-geom-bar-fill-not-coloring-bars-on-plot
+
+#calculate modes, see https://stackoverflow.com/questions/27418461/calculate-the-modes-in-a-multimodal-distribution-in-r
+
+# Select an appropriate bandwidth. Here we use a "rule of thumb" method
+# looks like there are some NAs in the 2018 data so I have to get rid of them
+bandwidth <- bw.nrd0(na.omit(vt_2018$age)) 
+
+# Other methods, e.g. bw.ucv(), will identify different bandwidths as optimal
+# Consequently the number (and position) of modes may differ too
+
+# Methods implemented in multimode are documented at ?bw.nrd
+
+# Calculate number of modes
+n <- nmodes(vt_2018$age, bw = bandwidth)
+
+# Calculate location of these modes
+loc <- locmodes(vt_2018$age, mod0 = n, display=TRUE)
+# Remove `, display = TRUE` if you don't want to see the KDE
+#loc
+
+# Locations of modes are odd values in loc
+modes <- loc$locations[seq(from = 1, by = 2, length.out = n)]
+antimodes <- loc$locations[seq(from = 0, by = 2, length.out = n)]
+
+# subset out "young" and "old" populations -- "young" is <= first antimode, "old" is > first antimode
+vt_2018_young <- subset(vt_2018, age <= antimodes[1])
+vt_2018_old <- subset(vt_2018, age > antimodes[1])
+
+
+# create a condition to use different colors based on the location of the antimode
+# from https://stackoverflow.com/questions/13372523/altering-the-color-of-one-value-in-a-ggplot-histogram
+# it just gives me a 0 for anything in the younger population, 1 for older
+
+vt_2018$aftermode <- vt_2018$age > antimodes[1]
+
+#added multiple mode lines to plot using https://stackoverflow.com/questions/71580196/add-horizontal-lines-from-a-vector-to-a-ggplot-uisng-facet-grid
+
+
+# a plot without mode lines or anything, with the number of people dying for each age 
+ggplot(data=vt_2018, aes(x=age, ..count..)) + 
+      geom_bar(aes(fill = as.character(aftermode)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 0),  breaks = seq(min(vt_2018$age), max(vt_2018$age), by = 5), labels = seq(min(vt_2018$age), max(vt_2018$age), by = 5), minor_breaks = seq(min(vt_2018$age), max(vt_2018$age), by = 1)) + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black", size = 7/.pt) + theme_light() + ggtitle("Age distribution for 2018 VT opioid-detected overdose deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 9)) + scale_fill_manual(name = "Age group", values = c("#00BFC4", "#F8766D"), labels = c("Younger", "Older"))+xlab("Age")+ylab("Number of decedents")
+
+age_2018 <- ggplot(data=vt_2018, aes(x=age, ..count..)) + 
+      geom_bar(aes(fill = as.character(aftermode)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 0),  breaks = seq(min(vt_2018$age), max(vt_2018$age), by = 5), labels = seq(min(vt_2018$age), max(vt_2018$age), by = 5), minor_breaks = seq(min(vt_2018$age), max(vt_2018$age), by = 1)) + theme_light() + geom_vline(xintercept = modes, size=1) + ggtitle("Age distribution for 2018 VT opioid-detected overdose deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 9)) + scale_fill_manual(name = "Age group", values = c("#00BFC4", "#F8766D"), labels = c("Younger", "Older"))+xlab("Age")+ylab("Number of decedents")
+
+age_2018
+
+ggsave(plot=age_2018, filename = "images/vt/age_2018.png", width = 10, height = 8)
+
+
+sprintf("Using Hartigan's dip test for bimodality, the resulting p value is %f.", dip.test(vt_2018$age)$p.value) 
+
+```
+
+#### 2019
+
+```{r age2019, echo=FALSE, message=FALSE, warning=FALSE}
+#there was an issue with the x axis not showing up when I coped the other histogram code -- resolved using https://stackoverflow.com/questions/42425195/ggplot-data-year-over-year-axis-labels-not-showing
+
+#fixed issue with colors not showing -- turns out it was because the data was numeric: https://stackoverflow.com/questions/55400037/ggplot-geom-bar-fill-not-coloring-bars-on-plot
+
+#calculate modes, see https://stackoverflow.com/questions/27418461/calculate-the-modes-in-a-multimodal-distribution-in-r
+
+# Select an appropriate bandwidth. Here we use a "rule of thumb" method
+bandwidth <- bw.nrd0(vt_2019$age) 
+
+# Other methods, e.g. bw.ucv(), will identify different bandwidths as optimal
+# Consequently the number (and position) of modes may differ too
+
+# Methods implemented in multimode are documented at ?bw.nrd
+
+# Calculate number of modes
+n <- nmodes(vt_2019$age, bw = bandwidth)
+
+# Calculate location of these modes
+loc <- locmodes(vt_2019$age, mod0 = n, display=TRUE)
+# Remove `, display = TRUE` if you don't want to see the KDE
+#loc
+
+# Locations of modes are odd values in loc
+modes <- loc$locations[seq(from = 1, by = 2, length.out = n)]
+antimodes <- loc$locations[seq(from = 0, by = 2, length.out = n)]
+
+# subset out "young" and "old" populations -- "young" is <= first antimode, "old" is > first antimode
+vt_2019_young <- subset(vt_2019, age <= antimodes[1])
+vt_2019_old <- subset(vt_2019, age > antimodes[1])
+
+
+# create a condition to use different colors based on the location of the antimode
+# from https://stackoverflow.com/questions/13372523/altering-the-color-of-one-value-in-a-ggplot-histogram
+# it just gives me a 0 for anything in the younger population, 1 for older
+
+vt_2019$aftermode <- vt_2019$age > antimodes[1]
+
+#added multiple mode lines to plot using https://stackoverflow.com/questions/71580196/add-horizontal-lines-from-a-vector-to-a-ggplot-uisng-facet-grid
+
+
+# a plot without mode lines or anything, with the number of people dying for each age 
+ggplot(data=vt_2019, aes(x=age, ..count..)) + 
+      geom_bar(aes(fill = as.character(aftermode)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 0),  breaks = seq(min(vt_2019$age), max(vt_2019$age), by = 5), labels = seq(min(vt_2019$age), max(vt_2019$age), by = 5), minor_breaks = seq(min(vt_2019$age), max(vt_2019$age), by = 1)) + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black", size = 7/.pt) + theme_light() + ggtitle("Age distribution for 2019 VT opioid-detected overdose deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="right", axis.text.x = element_text(size = 9)) + scale_fill_manual(name = "Age group", values = c("#00BFC4", "#F8766D"), labels = c("Younger", "Older"))+xlab("Age")+ylab("Number of decedents")
+
+age_2019 <- ggplot(data=vt_2019, aes(x=age, ..count..)) + 
+      geom_bar(aes(fill = as.character(aftermode)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 0),  breaks = seq(min(vt_2019$age), max(vt_2019$age), by = 5), labels = seq(min(vt_2019$age), max(vt_2019$age), by = 5), minor_breaks = seq(min(vt_2019$age), max(vt_2019$age), by = 1)) + theme_light() + geom_vline(xintercept = modes, size=1) + ggtitle("Age distribution for 2019 VT opioid-detected overdose deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="right", axis.text.x = element_text(size = 9)) + scale_fill_manual(name = "Age group", values = c("#00BFC4", "#F8766D"), labels = c("Younger", "Older"))+xlab("Age")+ylab("Number of decedents")
+
+age_2019
+
+ggsave(plot=age_2019, filename = "images/vt/age_2019.png", width = 10, height = 8)
+
+sprintf("Using Hartigan's dip test for bimodality, the resulting p value is %f.", dip.test(vt_2019$age)$p.value) 
+
+
+```
+
+#### 2020
+
+```{r age2020, echo=FALSE, message=FALSE, warning=FALSE}
+#there was an issue with the x axis not showing up when I coped the other histogram code -- resolved using https://stackoverflow.com/questions/42425195/ggplot-data-year-over-year-axis-labels-not-showing
+
+#fixed issue with colors not showing -- turns out it was because the data was numeric: https://stackoverflow.com/questions/55400037/ggplot-geom-bar-fill-not-coloring-bars-on-plot
+
+#calculate modes, see https://stackoverflow.com/questions/27418461/calculate-the-modes-in-a-multimodal-distribution-in-r
+
+# Select an appropriate bandwidth. Here we use a "rule of thumb" method
+bandwidth <- bw.nrd0(vt_2020$age) 
+
+# Other methods, e.g. bw.ucv(), will identify different bandwidths as optimal
+# Consequently the number (and position) of modes may differ too
+
+# Methods implemented in multimode are documented at ?bw.nrd
+
+# Calculate number of modes
+n <- nmodes(vt_2020$age, bw = bandwidth)
+
+# Calculate location of these modes
+loc <- locmodes(vt_2020$age, mod0 = n, display=TRUE)
+# Remove `, display = TRUE` if you don't want to see the KDE
+#loc
+
+# Locations of modes are odd values in loc
+modes <- loc$locations[seq(from = 1, by = 2, length.out = n)]
+antimodes <- loc$locations[seq(from = 0, by = 2, length.out = n)]
+
+# subset out "young" and "old" populations -- "young" is <= first antimode, "old" is > first antimode
+vt_2020_young <- subset(vt_2020, age <= antimodes[1])
+vt_2020_old <- subset(vt_2020, age > antimodes[1])
+
+# create a condition to use different colors based on the location of the antimode
+# from https://stackoverflow.com/questions/13372523/altering-the-color-of-one-value-in-a-ggplot-histogram
+# it just gives me a 0 for anything in the younger population, 1 for older
+
+vt_2020$aftermode <- vt_2020$age > antimodes[1]
+
+#added multiple mode lines to plot using https://stackoverflow.com/questions/71580196/add-horizontal-lines-from-a-vector-to-a-ggplot-uisng-facet-grid
+
+
+# a plot without mode lines or anything, with the number of people dying for each age 
+ggplot(data=vt_2020, aes(x=age, ..count..)) + 
+      geom_bar(aes(fill = aftermode), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 0),  breaks = seq(min(vt_2020$age), max(vt_2020$age), by = 5), labels = seq(min(vt_2020$age), max(vt_2020$age), by = 5), minor_breaks = seq(min(vt_2020$age), max(vt_2020$age), by = 1)) + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black", size = 7/.pt) + theme_light() + ggtitle("Age distribution for 2020 VT opioid-detected overdose deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="right", axis.text.x = element_text(size = 9)) + scale_fill_manual(name = "Age group", values =  c("#00BFC4", "#F8766D"), labels = c("Younger", "Older"))+xlab("Age")+ylab("Number of decedents")
+
+age_2020 <- ggplot(data=vt_2020, aes(x=age, ..count..)) + 
+      geom_bar(aes(fill = aftermode), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 0),  breaks = seq(min(vt_2020$age), max(vt_2020$age), by = 5), labels = seq(min(vt_2020$age), max(vt_2020$age), by = 5), minor_breaks = seq(min(vt_2020$age), max(vt_2020$age), by = 1)) + theme_light() + geom_vline(xintercept = modes, size=1, color="black") + ggtitle("Age distribution for 2020 VT opioid-detected overdose deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="right", axis.text.x = element_text(size = 9)) + scale_fill_manual(name = "Age group", values =  c("#00BFC4", "#F8766D"), labels = c("Younger", "Older"))+xlab("Age")+ylab("Number of decedents")
+
+age_2020
+
+ggsave(plot=age_2020, filename = "images/vt/age_2020.png", width = 10, height = 8)
+
+sprintf("Using Hartigan's dip test for bimodality, the resulting p value is %f.", dip.test(vt_2020$age)$p.value) 
+
+
+```
+
+#### 2021
+
+```{r age2021, echo=FALSE, message=FALSE, warning=FALSE}
+#there was an issue with the x axis not showing up when I coped the other histogram code -- resolved using https://stackoverflow.com/questions/42425195/ggplot-data-year-over-year-axis-labels-not-showing
+
+#fixed issue with colors not showing -- turns out it was because the data was numeric: https://stackoverflow.com/questions/55400037/ggplot-geom-bar-fill-not-coloring-bars-on-plot
+
+#calculate modes, see https://stackoverflow.com/questions/27418461/calculate-the-modes-in-a-multimodal-distribution-in-r
+
+# Select an appropriate bandwidth. Here we use a "rule of thumb" method
+bandwidth <- bw.nrd0(vt_2021$age) 
+
+# Other methods, e.g. bw.ucv(), will identify different bandwidths as optimal
+# Consequently the number (and position) of modes may differ too
+
+# Methods implemented in multimode are documented at ?bw.nrd
+
+# Calculate number of modes
+n <- nmodes(vt_2021$age, bw = bandwidth)
+
+# Calculate location of these modes
+loc <- locmodes(vt_2021$age, mod0 = n, display=TRUE)
+# Remove `, display = TRUE` if you don't want to see the KDE
+#loc
+
+# Locations of modes are odd values in loc
+modes <- loc$locations[seq(from = 1, by = 2, length.out = n)]
+antimodes <- loc$locations[seq(from = 0, by = 2, length.out = n)]
+
+# subset out "young" and "old" populations -- "young" is <= first antimode, "old" is > first antimode
+vt_2021_young <- subset(vt_2021, age <= antimodes[1])
+vt_2021_old <- subset(vt_2021, age > antimodes[1])
+
+
+# create a condition to use different colors based on the location of the antimode
+# from https://stackoverflow.com/questions/13372523/altering-the-color-of-one-value-in-a-ggplot-histogram
+# it just gives me a 0 for anything in the younger population, 1 for older
+
+vt_2021$aftermode <- vt_2021$age > antimodes[1]
+
+#added multiple mode lines to plot using https://stackoverflow.com/questions/71580196/add-horizontal-lines-from-a-vector-to-a-ggplot-uisng-facet-grid
+
+
+# a plot without mode lines or anything, with the number of people dying for each age 
+ggplot(data=vt_2021, aes(x=age, ..count..)) + 
+      geom_bar(aes(fill = as.character(aftermode)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 0),  breaks = seq(min(vt_2021$age), max(vt_2021$age), by = 5), labels = seq(min(vt_2021$age), max(vt_2021$age), by = 5), minor_breaks = seq(min(vt_2021$age), max(vt_2021$age), by = 1)) + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black", size = 7/.pt) + theme_light() + ggtitle("Age distribution for 2021 VT opioid-detected overdose deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 9)) + scale_fill_manual(name = "Age group", values = c("#00BFC4", "#F8766D"), labels = c("Younger", "Older"))+xlab("Age")+ylab("Number of decedents")
+
+age_2021 <- ggplot(data=vt_2021, aes(x=age, ..count..)) + 
+      geom_bar(aes(fill = as.character(aftermode)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 0),  breaks = seq(min(vt_2021$age), max(vt_2021$age), by = 5), labels = seq(min(vt_2021$age), max(vt_2021$age), by = 5), minor_breaks = seq(min(vt_2021$age), max(vt_2021$age), by = 1)) + theme_light() + geom_vline(xintercept = modes, size=1) + ggtitle("Age distribution for 2021 VT opioid-detected overdose deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 9)) + scale_fill_manual(name = "Age group", values = c("#00BFC4", "#F8766D"), labels = c("Younger", "Older"))+xlab("Age")+ylab("Number of decedents")
+
+age_2021
+
+ggsave(plot=age_2021, filename = "images/vt/age_2021.png", width = 10, height = 8)
+
+sprintf("Using Hartigan's dip test for bimodality, the resulting p value is %f.", dip.test(vt_2021$age)$p.value) 
+
+ 
+```
+
+#### 2022
+
+```{r age2022, echo=FALSE, message=FALSE, warning=FALSE}
+#there was an issue with the x axis not showing up when I coped the other histogram code -- resolved using https://stackoverflow.com/questions/42425195/ggplot-data-year-over-year-axis-labels-not-showing
+
+#fixed issue with colors not showing -- turns out it was because the data was numeric: https://stackoverflow.com/questions/55400037/ggplot-geom-bar-fill-not-coloring-bars-on-plot
+
+#calculate modes, see https://stackoverflow.com/questions/27418461/calculate-the-modes-in-a-multimodal-distribution-in-r
+
+# Select an appropriate bandwidth. Here we use a "rule of thumb" method
+bandwidth <- bw.nrd0(vt_2022$age) 
+
+# Other methods, e.g. bw.ucv(), will identify different bandwidths as optimal
+# Consequently the number (and position) of modes may differ too
+
+# Methods implemented in multimode are documented at ?bw.nrd
+
+# Calculate number of modes
+n <- nmodes(vt_2022$age, bw = bandwidth)
+
+# Calculate location of these modes
+loc <- locmodes(vt_2022$age, mod0 = n, display=TRUE)
+# Remove `, display = TRUE` if you don't want to see the KDE
+#loc
+
+# Locations of modes are odd values in loc
+modes <- loc$locations[seq(from = 1, by = 2, length.out = n)]
+antimodes <- loc$locations[seq(from = 0, by = 2, length.out = n)]
+
+# subset out "young" and "old" populations -- "young" is <= first antimode, "old" is > first antimode
+# in this case we have to use the second antimode because the first one seems to represent some infant deaths
+vt_2022_young <- subset(vt_2022, age <= antimodes[1])
+vt_2022_old <- subset(vt_2022, age > antimodes[1])
+
+# create a condition to use different colors based on the location of the antimode
+# from https://stackoverflow.com/questions/13372523/altering-the-color-of-one-value-in-a-ggplot-histogram
+# it just gives me a 0 for anything in the younger population, 1 for older
+
+vt_2022$aftermode <- vt_2022$age > antimodes[1]
+
+#added multiple mode lines to plot using https://stackoverflow.com/questions/71580196/add-horizontal-lines-from-a-vector-to-a-ggplot-uisng-facet-grid
+
+
+# a plot without mode lines or anything, with the number of people dying for each age 
+ggplot(data=vt_2022, aes(x=age, ..count..)) + 
+      geom_bar(aes(fill = as.character(aftermode)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 0),  breaks = seq(min(vt_2022$age), max(vt_2022$age), by = 5), labels = seq(min(vt_2022$age), max(vt_2022$age), by = 5), minor_breaks = seq(min(vt_2022$age), max(vt_2022$age), by = 1)) + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black", size = 7/.pt) + theme_light() + ggtitle("Age distribution for 2022 VT opioid-detected overdose deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 9)) + scale_fill_manual(name = "Age group", values = c("#00BFC4", "#F8766D"), labels = c("Younger", "Older"))+xlab("Age")+ylab("Number of decedents")
+
+# using modes[-1] to get rid of that first mode which is for a baby death
+age_2022 <- ggplot(data=vt_2022, aes(x=age, ..count..)) + 
+      geom_bar(aes(fill = as.character(aftermode)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 0),  breaks = seq(min(vt_2022$age), max(vt_2022$age), by = 5), labels = seq(min(vt_2022$age), max(vt_2022$age), by = 5), minor_breaks = seq(min(vt_2022$age), max(vt_2022$age), by = 1)) + theme_light() + geom_vline(xintercept = modes, size=1) + ggtitle("Age distribution for 2022 VT opioid-detected overdose deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 9)) + scale_fill_manual(name = "Age group", values = c("#00BFC4", "#F8766D"), labels = c("Younger", "Older"))+xlab("Age")+ylab("Number of decedents")
+
+age_2022
+
+
+ggsave(plot=age_2022, filename = "images/vt/age_2022.png", width = 10, height = 8)
+
+sprintf("Using Hartigan's dip test for bimodality, the resulting p value is %f.", dip.test(vt_2022$age)$p.value) 
+
+```
+
+#### 2023
+
+```{r age2023, echo=FALSE, message=FALSE, warning=FALSE}
+#there was an issue with the x axis not showing up when I coped the other histogram code -- resolved using https://stackoverflow.com/questions/42425195/ggplot-data-year-over-year-axis-labels-not-showing
+
+#fixed issue with colors not showing -- turns out it was because the data was numeric: https://stackoverflow.com/questions/55400037/ggplot-geom-bar-fill-not-coloring-bars-on-plot
+
+#calculate modes, see https://stackoverflow.com/questions/27418461/calculate-the-modes-in-a-multimodal-distribution-in-r
+
+# Select an appropriate bandwidth. Here we use a "rule of thumb" method
+bandwidth <- bw.nrd0(vt_2023$age) 
+
+# Other methods, e.g. bw.ucv(), will identify different bandwidths as optimal
+# Consequently the number (and position) of modes may differ too
+
+# Methods implemented in multimode are documented at ?bw.nrd
+
+# Calculate number of modes
+n <- nmodes(vt_2023$age, bw = bandwidth)
+
+# Calculate location of these modes
+loc <- locmodes(vt_2023$age, mod0 = n, display=TRUE)
+# Remove `, display = TRUE` if you don't want to see the KDE
+#loc
+
+# Locations of modes are odd values in loc
+modes <- loc$locations[seq(from = 1, by = 2, length.out = n)]
+antimodes <- loc$locations[seq(from = 0, by = 2, length.out = n)]
+
+# subset out "young" and "old" populations -- "young" is <= first antimode, "old" is > first antimode
+vt_2023_young <- subset(vt_2023, age <= antimodes[1])
+vt_2023_old <- subset(vt_2023, age > antimodes[1])
+
+# create a condition to use different colors based on the location of the antimode
+# from https://stackoverflow.com/questions/13372523/altering-the-color-of-one-value-in-a-ggplot-histogram
+# it just gives me a 0 for anything in the younger population, 1 for older
+
+vt_2023$aftermode <- vt_2023$age > antimodes[1]
+
+#added multiple mode lines to plot using https://stackoverflow.com/questions/71580196/add-horizontal-lines-from-a-vector-to-a-ggplot-uisng-facet-grid
+
+
+# a plot without mode lines or anything, with the number of people dying for each age 
+ggplot(data=vt_2023, aes(x=age, ..count..)) + 
+      geom_bar(aes(fill = as.character(aftermode)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 0),  breaks = seq(min(vt_2023$age), max(vt_2023$age), by = 5), labels = seq(min(vt_2023$age), max(vt_2023$age), by = 5), minor_breaks = seq(min(vt_2023$age), max(vt_2023$age), by = 1))  + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black", size = 7/.pt) + theme_light() + ggtitle("Age distribution for 2023 VT opioid-detected overdose deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 9)) + scale_fill_manual(name = "Age group", values = c("#00BFC4", "#F8766D"), labels = c("Younger", "Older"))+xlab("Age")+ylab("Number of decedents")
+
+age_2023 <- ggplot(data=vt_2023, aes(x=age, ..count..)) + 
+      geom_bar(aes(fill = as.character(aftermode)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 0),  breaks = seq(min(vt_2023$age), max(vt_2023$age), by = 5), labels = seq(min(vt_2023$age), max(vt_2023$age), by = 5), minor_breaks = seq(min(vt_2023$age), max(vt_2023$age), by = 1))  + theme_light() + geom_vline(xintercept = modes, size=1) + ggtitle("Age distribution for 2023 VT opioid-detected overdose deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 9)) + scale_fill_manual(name = "Age group", values = c("#00BFC4", "#F8766D"), labels = c("Younger", "Older"))+xlab("Age")+ylab("Number of decedents")
+
+age_2023
+
+
+ggsave(plot=age_2023, filename = "images/vt/age_2023.png", width = 10, height = 8)
+
+sprintf("Using Hartigan's dip test for multimodality, the resulting p value is %f.", dip.test(vt_2023$age)$p.value) 
+
+ 
+```
+
+### Median age
+
+I have only included information for years where I can identify a "younger" and "older" subpopulation -- take these determinations with a grain of salt, though, because the sample size is small and the kde could be erroneously identifying [or erroneously missing] subpopulations. 
+
+```{r median, echo=FALSE, message=FALSE, warning=FALSE}
+sprintf("The median age of decedents in VT in 2009 was %f. For younger decedents the median age was %f and for older decedents the median age was %f.", median(vt_2009$age), median(vt_2009_young$age), median(vt_2009_old$age))
+
+sprintf("The median age of decedents in VT in 2010 was %f. For younger decedents the median age was %f and for older decedents the median age was %f.", median(vt_2010$age), median(vt_2010_young$age), median(vt_2010_old$age))
+
+sprintf("The median age of decedents in VT in 2011 was %f. For younger decedents the median age was %f and for older decedents the median age was %f.", median(vt_2011$age), median(vt_2011_young$age), median(vt_2011_old$age))
+
+sprintf("The median age of decedents in VT in 2012 was %f. For younger decedents the median age was %f and for older decedents the median age was %f.", median(vt_2012$age), median(vt_2012_young$age), median(vt_2012_old$age))
+
+sprintf("The median age of decedents in VT in 2013 was %f. For younger decedents the median age was %f and for older decedents the median age was %f.", median(vt_2013$age), median(vt_2013_young$age), median(vt_2013_old$age))
+
+sprintf("The median age of decedents in VT in 2014 was %f. For younger decedents the median age was %f and for older decedents the median age was %f.", median(vt_2014$age), median(vt_2014_young$age), median(vt_2014_old$age))
+
+sprintf("The median age of decedents in VT in 2015 was %f. For younger decedents the median age was %f and for older decedents the median age was %f.", median(vt_2015$age), median(vt_2015_young$age), median(vt_2015_old$age))
+
+sprintf("The median age of decedents in VT in 2016 was %f. For younger decedents the median age was %f and for older decedents the median age was %f.", median(vt_2016$age), median(vt_2016_young$age), median(vt_2016_old$age))
+
+sprintf("The median age of decedents in VT in 2017 was %f. For younger decedents the median age was %f and for older decedents the median age was %f.", median(vt_2017$age), median(vt_2017_young$age), median(vt_2017_old$age))
+
+sprintf("The median age of decedents in VT in 2018 was %f. For younger decedents the median age was %f and for older decedents the median age was %f.", median(vt_2018$age), median(vt_2018_young$age), median(vt_2018_old$age))
+
+sprintf("The median age of decedents in VT in 2019 was %f. For younger decedents the median age was %f and for older decedents the median age was %f.", median(vt_2019$age), median(vt_2019_young$age), median(vt_2019_old$age))
+
+sprintf("The median age of decedents in VT in 2020 was %f. For younger decedents the median age was %f and for older decedents the median age was %f.", median(vt_2020$age), median(vt_2020_young$age), median(vt_2020_old$age))
+
+sprintf("The median age of decedents in VT in 2021 was %f. For younger decedents the median age was %f and for older decedents the median age was %f.", median(vt_2021$age), median(vt_2021_young$age), median(vt_2021_old$age))
+
+sprintf("The median age of decedents in VT in 2022 was %f. For younger decedents the median age was %f and for older decedents the median age was %f.", median(vt_2022$age), median(vt_2022_young$age), median(vt_2022_old$age))
+
+sprintf("The median age of decedents in VT in 2023 was %f. For younger decedents the median age was %f and for older decedents the median age was %f.", median(vt_2023$age), median(vt_2023_young$age), median(vt_2023_old$age))
+```
+
+### Proportion of older people by year
+
+Once more, only using years for which I can bifurcate the distribution. 
+
+```{r propOld, echo=FALSE, message=FALSE, warning=FALSE}
+
+sprintf("The proportion of older decedents in 2009 was %f, with %d out of %d deaths.", nrow(vt_2009_old)/nrow(vt_2009), nrow(vt_2009_old), nrow(vt_2009))
+#sprintf("The proportion of older decedents in 2010 was %f, with %d out of %d deaths.", nrow(vt_2010_old)/nrow(vt_2010), nrow(vt_2010_old), nrow(vt_2010))
+#sprintf("The proportion of older decedents in 2011 was %f, with %d out of %d deaths.", nrow(vt_2011_old)/nrow(vt_2011), nrow(vt_2011_old), nrow(vt_2011))
+sprintf("The proportion of older decedents in 2012 was %f, with %d out of %d deaths.", nrow(vt_2012_old)/nrow(vt_2012), nrow(vt_2012_old), nrow(vt_2012))
+sprintf("The proportion of older decedents in 2013 was %f, with %d out of %d deaths.", nrow(vt_2013_old)/nrow(vt_2013), nrow(vt_2013_old), nrow(vt_2013))
+sprintf("The proportion of older decedents in 2014 was %f, with %d out of %d deaths.", nrow(vt_2014_old)/nrow(vt_2014), nrow(vt_2014_old), nrow(vt_2014))
+sprintf("The proportion of older decedents in 2015 was %f, with %d out of %d deaths.", nrow(vt_2015_old)/nrow(vt_2015), nrow(vt_2015_old), nrow(vt_2015))
+#sprintf("The proportion of older decedents in 2016 was %f, with %d out of %d deaths.", nrow(vt_2016_old)/nrow(vt_2016), nrow(vt_2016_old), nrow(vt_2016))
+sprintf("The proportion of older decedents in 2017 was %f, with %d out of %d deaths.", nrow(vt_2017_old)/nrow(vt_2017), nrow(vt_2017_old), nrow(vt_2017))
+#sprintf("The proportion of older decedents in 2018 was %f, with %d out of %d deaths.", nrow(vt_2018_old)/nrow(vt_2018), nrow(vt_2018_old), nrow(vt_2018))
+sprintf("The proportion of older decedents in 2019 was %f, with %d out of %d deaths.", nrow(vt_2019_old)/nrow(vt_2019), nrow(vt_2019_old), nrow(vt_2019))
+sprintf("The proportion of older decedents in 2020 was %f, with %d out of %d deaths.", nrow(vt_2020_old)/nrow(vt_2020), nrow(vt_2020_old), nrow(vt_2020))
+#sprintf("The proportion of older decedents in 2021 was %f, with %d out of %d deaths.", nrow(vt_2021_old)/nrow(vt_2021), nrow(vt_2021_old), nrow(vt_2021))
+#sprintf("The proportion of older decedents in 2022 was %f, with %d out of %d deaths.", nrow(vt_2022_old)/nrow(vt_2022), nrow(vt_2022_old), nrow(vt_2022))
+#sprintf("The proportion of older decedents in 2023 was %f, with %d out of %d deaths.", nrow(vt_2023_old)/nrow(vt_2023), nrow(vt_2023_old), nrow(vt_2023))
+
+```
+
+<!-- VT lists -- for analysis purposes only --> 
+
+```{r vtLists, echo=FALSE, message=FALSE, warning=FALSE}
+
+# this will come in handy for the tox graphs
+yearList <- c(2009, 2010, 2012, 2013, 2014, 2015, 2017, 2019, 2020)
+
+# make lists of the different vt datasets so I can use them later
+# create a list of dfs so I can iterate over them -- from https://stackoverflow.com/questions/32007076/loop-through-list-of-data-frames
+vtlist <- list(vt_2009, vt_2010, vt_2012, vt_2013, vt_2014, vt_2015, vt_2017, vt_2019, vt_2020)
+
+# excluding years with unimodal distributions
+
+vtlistYoung <- list(vt_2009_young, vt_2010_young, vt_2012_young, vt_2013_young, vt_2014_young, vt_2015_young, vt_2017_young, vt_2019_young, vt_2020_young)
+
+vtlistOld <- list(vt_2009_old, vt_2010_old, vt_2012_old, vt_2013_old, vt_2014_old, vt_2015_old, vt_2017_old, vt_2019_old, vt_2020_old)
+
+```
+
+### Race of decedents {.tabset}
+
+#### Young
+
+```{r raceNumericYoung, echo=FALSE, message=FALSE, warning=FALSE}
+for(i in 1:length(vtlistYoung)){
+  # get the df you need -- you need the double brackets, see https://stackoverflow.com/questions/32007076/loop-through-list-of-data-frames
+  vt <- vtlistYoung[[i]] 
+  # grab the year -- you only need the first element in the year column since all of them have the same value
+  year <- vt$Year[1]
+  
+# see if I can automate the title, from https://stackoverflow.com/questions/59095237/automate-ggplots-while-using-variable-labels-as-title-and-axis-titles
+racetitle <- paste("Racial distribution for", year, "VT opioid-detected overdose deaths in younger people")
+
+race <- ggplot(data=vt, aes(x=Race, ..count..)) + 
+      geom_bar(aes(fill = Race), position = "dodge")  + scale_fill_manual(name = "Race", values = c("#E69F00", "#56B4E9", "#009E73", "#CC79A7"), labels = c("Black", "Hispanic", "Other", "White")) + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black")+ ggtitle(racetitle)+ theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 7)) 
+
+# seem to need to use print() when in a for loop, from https://stackoverflow.com/questions/29053223/plots-not-working-in-for-loop
+print(race)
+
+# try to automate the filenames? from https://www.edureka.co/community/41963/r-programming-naming-the-output-file-using-a-variable
+ggsave(plot=race, filename = paste0("images/vt/race_", year, "_young.png"), width = 10, height = 8)
+
+raceProp <- ggplot(data=vt, aes(x=Race, ..count..)) + 
+      geom_bar(aes(fill = Race), position = "dodge")  + scale_fill_manual(name = "Race", values = c("#E69F00", "#56B4E9", "#009E73", "#CC79A7"), labels = c("Black", "Hispanic", "Other", "White")) + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = round(..count../nrow(vt), 3)), stat = "count", vjust = 0, colour = "black")+ ggtitle(racetitle)+ theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 7)) 
+
+print(raceProp)
+
+#save this one for the presentation
+ggsave(plot=raceProp, filename = paste0("images/vt/race_proportions_", year, "_young.png"), width = 10, height = 8)
+  
+}
+
+
+```
+
+#### Old 
+
+```{r raceNumericOld, echo=FALSE, message=FALSE, warning=FALSE}
+for(i in 1:length(vtlistOld)){
+  # get the df you need -- you need the double brackets, see https://stackoverflow.com/questions/32007076/loop-through-list-of-data-frames
+  vt <- vtlistOld[[i]] 
+  # grab the year -- you only need the first element in the year column sivte all of them have the same value
+  year <- vt$Year[1]
+  
+  
+# see if I can automate the title, from https://stackoverflow.com/questions/59095237/automate-ggplots-while-using-variable-labels-as-title-and-axis-titles
+racetitle <- paste("Racial distribution for", year, "VT opioid-detected overdose deaths in older people")
+
+race <- ggplot(data=vt, aes(x=Race, ..count..)) + 
+      geom_bar(aes(fill = Race), position = "dodge")  + scale_fill_manual(name = "Race", values = c("#E69F00", "#56B4E9", "#009E73", "#CC79A7"), labels = c("Black", "Hispanic", "Other", "White")) + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black")+ ggtitle(racetitle)+ theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 7)) 
+
+# seem to need to use print() when in a for loop, from https://stackoverflow.com/questions/29053223/plots-not-working-in-for-loop
+print(race)
+
+# try to automate the filenames? from https://www.edureka.co/community/41963/r-programming-naming-the-output-file-using-a-variable
+ggsave(plot=race, filename = paste0("images/vt/race_", year, "_old.png"), width = 10, height = 8)
+
+raceProp <- ggplot(data=vt, aes(x=Race, ..count..)) + 
+      geom_bar(aes(fill = Race), position = "dodge")  + scale_fill_manual(name = "Race", values = c("#E69F00", "#56B4E9", "#009E73", "#CC79A7"), labels = c("Black", "Hispanic", "Other", "White")) + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = round(..count../nrow(vt), 3)), stat = "count", vjust = 0, colour = "black")+ ggtitle(racetitle)+ theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 7)) 
+
+print(raceProp)
+
+#save this one for the presentation
+ggsave(plot=raceProp, filename = paste0("images/vt/race_proportions_", year, "_old.png"), width = 10, height = 8)
+  
+}
+
+```
+
+
+### Significance testing for race {.tabset}
+
+
+```{r chiSquaredRace, echo=FALSE, message=FALSE, warning=FALSE}
+# initialize empty matrix, from https://stackoverflow.com/questions/32712301/create-empty-data-frame-with-column-names-by-assigning-a-string-vector
+# this will hold all the p values
+
+chisq_race <- data.frame(matrix(ncol = 2, nrow = 0))
+cols <- c("Year", "p value")
+
+for(i in 1:length(vtlistYoung)){
+  # get the df you need -- you need the double brackets, see https://stackoverflow.com/questions/32007076/loop-through-list-of-data-frames
+  young <- vtlistYoung[[i]] 
+  old <- vtlistOld[[i]] 
+  # grab the year -- you only need the first element in the year column sivte all of them have the same value
+  year <- young$Year[1]
+  
+  racefreqtable <- young %>% group_by(Race) %>% tally()
+  names(racefreqtable)[names(racefreqtable) == 'n'] <- 'Young'
+
+  racetableold <- old %>% group_by(Race) %>% tally()
+  names(racetableold)[names(racetableold) == 'n'] <- 'Old'
+
+  racetable <- merge(racefreqtable, racetableold, by="Race")
+  
+  # convert the "race" column into row names so I get a table with only numeric values, from   https://stackoverflow.com/questions/5555408/convert-the-values-in-a-column-into-row-names-in-an-existing-data-frame
+
+  racemat <- racetable[,-1]
+  rownames(racemat) <- racetable[,1]
+
+  print(as.matrix(racemat))
+  
+   # append year and p value to a vector, rounding to make it more legible
+  # I'm using Fisher's exact test if >20% of cell counts are <5, if not use chi squared
+  # I get >20% <5 from https://www.ccjm.org/content/84/9_suppl_2/e20
+  pvalue <- ifelse(sum(racemat < 5)/(ncol(racemat) * nrow(racemat)) > 0.2, round(fisher.test(as.matrix(racemat))$p.value, 4), round(chisq.test(as.matrix(racemat))$p.value, 4))
+  
+  results <- c(year, pvalue)
+  
+  # add this to the chi squared df 
+  chisq_race <- rbind(chisq_race, results)
+
+}
+
+# for some reason it doesn't work if I do this before adding rows?
+colnames(chisq_race) <- cols
+
+chisq_race
+
+```
+
+
+### Proportion of white deaths
+
+```{r raceWhite, echo=FALSE, message=FALSE, warning=FALSE}
+
+# unfortunately there are different variable names for each vt file so a for loop won't work :/
+
+# get proportion of Race for each year for younger people -- from https://stackoverflow.com/questions/28195996/count-number-of-rows-matching-a-criteria
+whiteyoung <- c(sum(vt_2009_young$Race == "White")/nrow(vt_2009_young), sum(vt_2010_young$Race == "White")/nrow(vt_2010_young), sum(vt_2012_young$Race == "White")/nrow(vt_2012_young),  sum(vt_2013_young$Race == "White")/nrow(vt_2013_young), sum(vt_2014_young$Race == "White")/nrow(vt_2014_young), sum(vt_2015_young$Race == "White")/nrow(vt_2015_young), sum(vt_2017_young$Race == "White")/nrow(vt_2017_young), sum(vt_2019_young$Race == "White")/nrow(vt_2019_young), sum(vt_2020_young$Race == "White")/nrow(vt_2020_young))
+
+# get proportion for older people
+whiteold <- c(sum(vt_2009_old$Race == "White")/nrow(vt_2009_old), sum(vt_2010_old$Race == "White")/nrow(vt_2010_old), sum(vt_2012_old$Race == "White")/nrow(vt_2012_old),  sum(vt_2013_old$Race == "White")/nrow(vt_2013_old), sum(vt_2014_old$Race == "White")/nrow(vt_2014_old), sum(vt_2015_old$Race == "White")/nrow(vt_2015_old), sum(vt_2017_old$Race == "White")/nrow(vt_2017_old), sum(vt_2019_old$Race == "White")/nrow(vt_2019_old), sum(vt_2020_old$Race == "White")/nrow(vt_2020_old))
+
+# combine vectors into df
+propRace <- data.frame(yearList, whiteyoung, whiteold)
+
+# change the col names to be more informative
+names(propRace) <- c("Year", "Younger", "Older")
+
+# create grouped bar plot, from https://stackoverflow.com/questions/72449952/making-a-grouped-bar-chart-in-r
+# getting the labels in the right position from https://stackoverflow.com/questions/37587288/ggplot-label-bars-in-grouped-bar-plot
+# info on changing legend title from here https://stackoverflow.com/questions/41649929/how-to-modify-a-legend-title-in-a-barplot-with-ggplot
+# the scale x continuous is there because for some reason adding 2023 data messed up the x axis, see https://stackoverflow.com/questions/72051789/how-to-display-all-values-on-x-and-y-axes-in-r-ggplot2
+
+# ivtreasing line size from https://stackoverflow.com/questions/14794599/how-to-change-line-width-in-ggplot
+# line graph info from https://www.sthda.com/english/wiki/ggplot2-line-plot-quick-start-guide-r-software-and-data-visualization
+
+pracelong  <- propRace |>
+  # Reshape data to long format
+  pivot_longer(Younger:Older)
+
+# create labels with the value of each proportion
+pracelong$labels <- round(pracelong$value, 2)
+
+pRace <-  ggplot(data = pracelong, aes(x = Year, y = value, fill = name, group=name, color=factor(name))) +
+  # Implement a grouped bar chart
+  # Implement a line graph
+  geom_line(stat = "identity", size = 1) + geom_point(size = 2) + theme_light() + ggtitle("Proportion of White opioid-detected overdose deaths \n by age group in VT, 2009-2023") + ylab("Proportion") + theme(plot.title = element_text(hjust = 0.5)) + scale_fill_discrete(guide="none") + scale_x_continuous(breaks=propRace$Year) + xlab("Year")+ coord_cartesian(ylim = c(0, 1)) + guides(color = guide_legend(title = "Age group"))+ geom_label_repel(aes(label = labels, x = Year, y = value), nudge_x = 0.1, na.rm = FALSE, color = "black", size = 2.5, label.size = NA, fill = NA)
+
+pRace
+
+ggsave(plot=pRace, filename = "images/vt/prop_white_allyears.png", width = 10, height = 8)
+
+```
+
+
+### Significance testing for white deaths
+
+```{r chiSquaredWhite, echo=FALSE, message=FALSE, warning=FALSE}
+# initialize empty matrix, from https://stackoverflow.com/questions/32712301/create-empty-data-frame-with-column-names-by-assigning-a-string-vector
+# this will hold all the p values
+
+chisq_white <- data.frame(matrix(ncol = 2, nrow = 0))
+cols <- c("Year", "Younger", "Older")
+
+for(i in 1:length(vtlistYoung)){
+  # get the df you need -- you need the double brackets, see https://stackoverflow.com/questions/32007076/loop-through-list-of-data-frames
+  young <- vtlistYoung[[i]] 
+  old <- vtlistOld[[i]] 
+  # grab the year -- you only need the first element in the year column sivte all of them have the same value
+  year <- young$Year[1]
+  
+  racefreqtable <- subset(young, Race == "White") %>% group_by(Race) %>% tally()
+  names(racefreqtable)[names(racefreqtable) == 'n'] <- 'Young'
+
+  racetableold <- subset(old, Race == "White") %>% group_by(Race) %>% tally()
+  names(racetableold)[names(racetableold) == 'n'] <- 'Old'
+
+  racetable <- merge(racefreqtable, racetableold, by="Race")
+  
+  # convert the "race" column into row names so I get a table with only numeric values, from   https://stackoverflow.com/questions/5555408/convert-the-values-in-a-column-into-row-names-in-an-existing-data-frame
+
+  racemat <- racetable[,-1]
+  
+  # add to matrix with all the white results 
+  
+  results <- cbind(year, racemat)
+  
+  # add this to the chi squared df 
+  chisq_white <- rbind(chisq_white, results)
+
+}
+
+# for some reason it doesn't work if I do this before adding rows?
+colnames(chisq_white) <- cols
+chisq_white
+
+# compute chi squared
+
+racemat <- as.matrix(chisq_white[,-1])
+
+  pvalue <- ifelse(sum(racemat < 5)/(ncol(racemat) * nrow(racemat)) > 0.2, round(fisher.test(as.matrix(racemat))$p.value, 4), round(chisq.test(as.matrix(racemat))$p.value, 4))
+
+pvalue
+
+```
+
+
+
+### Proportion of Latine deaths
+
+```{r raceLatine, echo=FALSE, message=FALSE, warning=FALSE}
+
+# unfortunately there are different variable names for each vt file so a for loop won't work :/
+
+# get proportion of Race for each year for younger people -- from https://stackoverflow.com/questions/28195996/count-number-of-rows-matching-a-criteria
+latineyoung <- c(sum(vt_2009_young$Race == "Hispanic")/nrow(vt_2009_young), sum(vt_2010_young$Race == "Hispanic")/nrow(vt_2010_young), sum(vt_2012_young$Race == "Hispanic")/nrow(vt_2012_young),  sum(vt_2013_young$Race == "Hispanic")/nrow(vt_2013_young), sum(vt_2014_young$Race == "Hispanic")/nrow(vt_2014_young), sum(vt_2015_young$Race == "Hispanic")/nrow(vt_2015_young), sum(vt_2017_young$Race == "Hispanic")/nrow(vt_2017_young), sum(vt_2019_young$Race == "Hispanic")/nrow(vt_2019_young), sum(vt_2020_young$Race == "Hispanic")/nrow(vt_2020_young))
+
+# get proportion for older people
+latineold <- c(sum(vt_2009_old$Race == "Hispanic")/nrow(vt_2009_old), sum(vt_2010_old$Race == "Hispanic")/nrow(vt_2010_old), sum(vt_2012_old$Race == "Hispanic")/nrow(vt_2012_old),  sum(vt_2013_old$Race == "Hispanic")/nrow(vt_2013_old), sum(vt_2014_old$Race == "Hispanic")/nrow(vt_2014_old), sum(vt_2015_old$Race == "Hispanic")/nrow(vt_2015_old), sum(vt_2017_old$Race == "Hispanic")/nrow(vt_2017_old), sum(vt_2019_old$Race == "Hispanic")/nrow(vt_2019_old), sum(vt_2020_old$Race == "Hispanic")/nrow(vt_2020_old))
+
+# combine vectors into df
+propRace <- data.frame(yearList, latineyoung, latineold)
+
+# change the col names to be more informative
+names(propRace) <- c("Year", "Younger", "Older")
+
+# create grouped bar plot, from https://stackoverflow.com/questions/72449952/making-a-grouped-bar-chart-in-r
+# getting the labels in the right position from https://stackoverflow.com/questions/37587288/ggplot-label-bars-in-grouped-bar-plot
+# info on changing legend title from here https://stackoverflow.com/questions/41649929/how-to-modify-a-legend-title-in-a-barplot-with-ggplot
+# the scale x continuous is there because for some reason adding 2023 data messed up the x axis, see https://stackoverflow.com/questions/72051789/how-to-display-all-values-on-x-and-y-axes-in-r-ggplot2
+
+# ivtreasing line size from https://stackoverflow.com/questions/14794599/how-to-change-line-width-in-ggplot
+# line graph info from https://www.sthda.com/english/wiki/ggplot2-line-plot-quick-start-guide-r-software-and-data-visualization
+
+pracelong  <- propRace |>
+  # Reshape data to long format
+  pivot_longer(Younger:Older)
+
+# create labels with the value of each proportion
+pracelong$labels <- round(pracelong$value, 2)
+
+pRace <-  ggplot(data = pracelong, aes(x = Year, y = value, fill = name, group=name, color=factor(name))) +
+  # Implement a grouped bar chart
+  # Implement a line graph
+  geom_line(stat = "identity", size = 1) + geom_point(size = 2) + theme_light() + ggtitle("Proportion of Latine opioid-detected overdose deaths \n by age group in VT, 2009-2023") + ylab("Proportion") + theme(plot.title = element_text(hjust = 0.5)) + scale_fill_discrete(guide="none") + scale_x_continuous(breaks=propRace$Year) + xlab("Year")+ coord_cartesian(ylim = c(0, 1)) + guides(color = guide_legend(title = "Age group"))+ geom_label_repel(aes(label = labels, x = Year, y = value), nudge_x = 0.1, na.rm = FALSE, color = "black", size = 2.5, label.size = NA, fill = NA)
+
+pRace
+
+ggsave(plot=pRace, filename = "images/vt/prop_latine_allyears.png", width = 10, height = 8)
+
+```
+
+
+### No chi squared testing for Latine deaths--basically everything is 0
+
+### Proportion of Black deaths
+
+```{r raceBlack, echo=FALSE, message=FALSE, warning=FALSE}
+
+# unfortunately there are different variable names for each vt file so a for loop won't work :/
+
+# get proportion of Race for each year for younger people -- from https://stackoverflow.com/questions/28195996/count-number-of-rows-matching-a-criteria
+blackyoung <- c(sum(vt_2009_young$Race == "Black")/nrow(vt_2009_young), sum(vt_2010_young$Race == "Black")/nrow(vt_2010_young), sum(vt_2012_young$Race == "Black")/nrow(vt_2012_young),  sum(vt_2013_young$Race == "Black")/nrow(vt_2013_young), sum(vt_2014_young$Race == "Black")/nrow(vt_2014_young), sum(vt_2015_young$Race == "Black")/nrow(vt_2015_young), sum(vt_2017_young$Race == "Black")/nrow(vt_2017_young), sum(vt_2019_young$Race == "Black")/nrow(vt_2019_young), sum(vt_2020_young$Race == "Black")/nrow(vt_2020_young))
+
+# get proportion for older people
+blackold <- c(sum(vt_2009_old$Race == "Black")/nrow(vt_2009_old), sum(vt_2010_old$Race == "Black")/nrow(vt_2010_old), sum(vt_2012_old$Race == "Black")/nrow(vt_2012_old),  sum(vt_2013_old$Race == "Black")/nrow(vt_2013_old), sum(vt_2014_old$Race == "Black")/nrow(vt_2014_old), sum(vt_2015_old$Race == "Black")/nrow(vt_2015_old), sum(vt_2017_old$Race == "Black")/nrow(vt_2017_old), sum(vt_2019_old$Race == "Black")/nrow(vt_2019_old), sum(vt_2020_old$Race == "Black")/nrow(vt_2020_old))
+
+# combine vectors into df
+propRace <- data.frame(yearList, blackyoung, blackold)
+
+# change the col names to be more informative
+names(propRace) <- c("Year", "Younger", "Older")
+
+# create grouped bar plot, from https://stackoverflow.com/questions/72449952/making-a-grouped-bar-chart-in-r
+# getting the labels in the right position from https://stackoverflow.com/questions/37587288/ggplot-label-bars-in-grouped-bar-plot
+# info on changing legend title from here https://stackoverflow.com/questions/41649929/how-to-modify-a-legend-title-in-a-barplot-with-ggplot
+# the scale x continuous is there because for some reason adding 2023 data messed up the x axis, see https://stackoverflow.com/questions/72051789/how-to-display-all-values-on-x-and-y-axes-in-r-ggplot2
+
+# ivtreasing line size from https://stackoverflow.com/questions/14794599/how-to-change-line-width-in-ggplot
+# line graph info from https://www.sthda.com/english/wiki/ggplot2-line-plot-quick-start-guide-r-software-and-data-visualization
+
+pracelong  <- propRace |>
+  # Reshape data to long format
+  pivot_longer(Younger:Older)
+
+# create labels with the value of each proportion
+pracelong$labels <- round(pracelong$value, 2)
+
+pRace <-  ggplot(data = pracelong, aes(x = Year, y = value, fill = name, group=name, color=factor(name))) +
+  # Implement a grouped bar chart
+  # Implement a line graph
+  geom_line(stat = "identity", size = 1) + geom_point(size = 2) + theme_light() + ggtitle("Proportion of Black opioid-detected overdose deaths \n by age group in VT, 2009-2023") + ylab("Proportion") + theme(plot.title = element_text(hjust = 0.5)) + scale_fill_discrete(guide="none") + scale_x_continuous(breaks=propRace$Year) + xlab("Year")+ coord_cartesian(ylim = c(0, 1)) + guides(color = guide_legend(title = "Age group"))+ geom_label_repel(aes(label = labels, x = Year, y = value), nudge_x = 0.1, na.rm = FALSE, color = "black", size = 2.5, label.size = NA, fill = NA)
+
+pRace
+
+ggsave(plot=pRace, filename = "images/vt/prop_black_allyears.png", width = 10, height = 8)
+
+```
+
+
+### Significance testing for Black deaths -- I don't think this is worth it either, there are too few [but maybe change to fisher's exact test?]
+
+```{r chiSquaredBlack, echo=FALSE, message=FALSE, warning=FALSE}
+# initialize empty matrix, from https://stackoverflow.com/questions/32712301/create-empty-data-frame-with-column-names-by-assigning-a-string-vector
+# this will hold all the p values
+
+# chisq_black <- data.frame(matrix(ncol = 2, nrow = 0))
+# cols <- c("Year", "p value")
+# 
+# for(i in 1:length(vtlistYoung)){
+#   # get the df you need -- you need the double brackets, see https://stackoverflow.com/questions/32007076/loop-through-list-of-data-frames
+#   young <- vtlistYoung[[i]] 
+#   old <- vtlistOld[[i]] 
+#   # grab the year -- you only need the first element in the year column sivte all of them have the same value
+#   year <- young$Year[1]
+#   
+#   racefreqtable <- subset(young, Race == "Black") %>% group_by(Race) %>% tally()
+#   names(racefreqtable)[names(racefreqtable) == 'n'] <- 'Young'
+# 
+#   racetableold <- subset(old, Race == "Black") %>% group_by(Race) %>% tally()
+#   names(racetableold)[names(racetableold) == 'n'] <- 'Old'
+# 
+#   racetable <- merge(racefreqtable, racetableold, by="Race")
+#   
+#   # convert the "race" column into row names so I get a table with only numeric values, from   https://stackoverflow.com/questions/5555408/convert-the-values-in-a-column-into-row-names-in-an-existing-data-frame
+# 
+#   racemat <- racetable[,-1]
+#   rownames(racemat) <- racetable[,1]
+# 
+#   print(as.matrix(racemat))
+#   
+#   # append year and p value to a vector, rounding to make it more legible
+#   results <- c(year, round(chisq.test(as.matrix(racemat))$p.value, 4))
+#   
+#   # add this to the chi squared df 
+#   chisq_black <- rbind(chisq_black, results)
+# 
+# }
+# 
+# # for some reason it doesn't work if I do this before adding rows?
+# colnames(chisq_black) <- cols
+# 
+# chisq_black
+
+```
+
+### Sex of decedents {.tabset}
+
+#### Young
+
+```{r sexTableYoung, echo=FALSE, message=FALSE, warning=FALSE}
+for(i in 1:length(vtlistYoung)){
+
+  # get the df you need -- you need the double brackets, see https://stackoverflow.com/questions/32007076/loop-through-list-of-data-frames
+  vt <- vtlistYoung[[i]] 
+  # grab the year -- you only need the first element in the year column sivte all of them have the same value
+  year <- vt$Year[1]
+  
+  sextitle <- paste("Sex distribution for", year, "VT opioid-detected overdose deaths in younger people")
+
+  
+sex <- ggplot(data=vt, aes(x=Sex_revised, ..count..)) + 
+      geom_bar(aes(fill = Sex_revised), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black")+ ggtitle(sextitle)   + theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+print(sex)
+
+ggsave(plot=sex, filename = paste0("images/vt/sex", year, "_young.png"), width = 10, height = 8)
+
+
+sexProp <- ggplot(data=vt, aes(x=Sex_revised, ..count..)) + 
+      geom_bar(aes(fill = Sex_revised), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = round(..count../nrow(vt), 3)), stat = "count", vjust = 0, colour = "black")+ ggtitle(sextitle)   + theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+print(sexProp)
+
+ggsave(plot=sexProp, filename = paste0("images/vt/sexProp", year, "_young.png"), width = 10, height = 8)
+
+}
+
+```
+
+#### Old
+
+```{r sexTableOld, echo=FALSE, message=FALSE, warning=FALSE}
+for(i in 1:length(vtlistOld)){
+
+  # get the df you need -- you need the double brackets, see https://stackoverflow.com/questions/32007076/loop-through-list-of-data-frames
+  vt <- vtlistOld[[i]] 
+  # grab the year -- you only need the first element in the year column sivte all of them have the same value
+  year <- vt$year[1]
+  
+  sextitle <- paste("Sex distribution for", year, "VT opioid-detected overdose deaths in older people")
+
+  
+sex <- ggplot(data=vt, aes(x=Sex_revised, ..count..)) + 
+      geom_bar(aes(fill = Sex_revised), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black")+ ggtitle(sextitle)   + theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+print(sex)
+
+ggsave(plot=sex, filename = paste0("images/vt/sex", year, "_old.png"), width = 10, height = 8)
+
+
+sexProp <- ggplot(data=vt, aes(x=Sex_revised, ..count..)) + 
+      geom_bar(aes(fill = Sex_revised), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = round(..count../nrow(vt), 3)), stat = "count", vjust = 0, colour = "black")+ ggtitle(sextitle)  + theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+print(sexProp)
+
+ggsave(plot=sexProp, filename = paste0("images/vt/sexProp", year, "_old.png"), width = 10, height = 8)
+
+}
+
+```
+
+### Significance testing for sex {.tabset}
+
+```{r chiSquaredSex, echo=FALSE, message=FALSE, warning=FALSE}
+# initialize empty matrix, from https://stackoverflow.com/questions/32712301/create-empty-data-frame-with-column-names-by-assigning-a-string-vector
+# this will hold all the p values
+
+chisq_sex <- data.frame(matrix(ncol = 2, nrow = 0))
+cols <- c("Year", "p value")
+
+for(i in 1:length(vtlistYoung)){
+  # get the df you need -- you need the double brackets, see https://stackoverflow.com/questions/32007076/loop-through-list-of-data-frames
+  young <- vtlistYoung[[i]] 
+  old <- vtlistOld[[i]] 
+  # grab the year -- you only need the first element in the year column sivte all of them have the same value
+  year <- young$Year[1]
+  
+  sexfreqtable <- young %>% group_by(Sex_revised) %>% tally()
+  names(sexfreqtable)[names(sexfreqtable) == 'n'] <- 'Young'
+
+  sextableold <- old %>% group_by(Sex_revised) %>% tally()
+  names(sextableold)[names(sextableold) == 'n'] <- 'Old'
+
+  sextable <- merge(sexfreqtable, sextableold, by="Sex_revised")
+  
+  # convert the "race" column into row names so I get a table with only numeric values, from   https://stackoverflow.com/questions/5555408/convert-the-values-in-a-column-into-row-names-in-an-existing-data-frame
+
+  sexmat <- sextable[,-1]
+  rownames(sexmat) <- sextable[,1]
+
+  print(as.matrix(sexmat))
+  
+   # append year and p value to a vector, rounding to make it more legible
+  # I'm using Fisher's exact test if >20% of cell counts are <5, if not use chi squared
+  # I get >20% <5 from https://www.ccjm.org/content/84/9_suppl_2/e20
+  pvalue <- ifelse(sum(sexmat < 5)/(ncol(sexmat) * nrow(sexmat)) > 0.2, round(fisher.test(as.matrix(sexmat))$p.value, 4), round(chisq.test(as.matrix(sexmat))$p.value, 4))
+  
+  results <- c(year, pvalue)
+  
+  # add this to the chi squared df 
+  chisq_sex <- rbind(chisq_sex, results)
+
+}
+
+# for some reason it doesn't work if I do this before adding rows?
+colnames(chisq_sex) <- cols
+
+chisq_sex
+
+```
+
+### Sex over all years
+
+```{r sexAllYears, echo=FALSE, message=FALSE, warning=FALSE}
+
+# unfortunately there are different variable names for each mass file so a for loop won't work :/
+
+# get proportion of Sex_revised for each year for younger people -- from https://stackoverflow.com/questions/28195996/count-number-of-rows-matching-a-criteria
+sexyoung <- c(sum(vt_2009_young$Sex_revised == "Male")/nrow(vt_2009_young), sum(vt_2010_young$Sex_revised == "Male")/nrow(vt_2010_young), sum(vt_2012_young$Sex_revised == "Male")/nrow(vt_2012_young), sum(vt_2013_young$Sex_revised == "Male")/nrow(vt_2013_young), sum(vt_2014_young$Sex_revised == "Male")/nrow(vt_2014_young), sum(vt_2015_young$Sex_revised == "Male")/nrow(vt_2015_young), sum(vt_2017_young$Sex_revised == "Male")/nrow(vt_2017_young), sum(vt_2019_young$Sex_revised == "Male")/nrow(vt_2019_young), sum(vt_2020_young$Sex_revised == "Male")/nrow(vt_2020_young))
+
+# get proportion for older people
+sexold <- c(sum(vt_2009_old$Sex_revised == "Male")/nrow(vt_2009_old), sum(vt_2010_old$Sex_revised == "Male")/nrow(vt_2010_old), sum(vt_2012_old$Sex_revised == "Male")/nrow(vt_2012_old), sum(vt_2013_old$Sex_revised == "Male")/nrow(vt_2013_old), sum(vt_2014_old$Sex_revised == "Male")/nrow(vt_2014_old), sum(vt_2015_old$Sex_revised == "Male")/nrow(vt_2015_old), sum(vt_2017_old$Sex_revised == "Male")/nrow(vt_2017_old), sum(vt_2019_old$Sex_revised == "Male")/nrow(vt_2019_old), sum(vt_2020_old$Sex_revised == "Male")/nrow(vt_2020_old))
+
+
+# combine vectors into df
+propSex_revised <- data.frame(yearList, sexyoung, sexold)
+
+# change the col names to be more informative
+names(propSex_revised) <- c("Year", "Younger", "Older")
+
+# create grouped bar plot, from https://stackoverflow.com/questions/72449952/making-a-grouped-bar-chart-in-r
+# getting the labels in the right position from https://stackoverflow.com/questions/37587288/ggplot-label-bars-in-grouped-bar-plot
+# info on changing legend title from here https://stackoverflow.com/questions/41649929/how-to-modify-a-legend-title-in-a-barplot-with-ggplot
+# the scale x continuous is there because for some reason adding 2023 data messed up the x axis, see https://stackoverflow.com/questions/72051789/how-to-display-all-values-on-x-and-y-axes-in-r-ggplot2
+
+psexlong  <- propSex_revised |>
+  # Reshape data to long format
+  pivot_longer(Younger:Older)
+
+# create labels with the value of each proportion
+psexlong$labels <- round(psexlong$value, 2)
+
+pSex_revised <-  ggplot(data = psexlong, aes(x = Year, y = value, fill = name, group=name, color=factor(name))) +
+  # Implement a grouped bar chart
+  # Implement a line graph
+  geom_line(stat = "identity", size = 1) + geom_point(size = 2) + theme_light() + ggtitle("Proportion of male deaths in VT by age group, 2009-2023") + ylab("Proportion") + theme(plot.title = element_text(hjust = 0.5)) + scale_fill_discrete(guide="none") + scale_x_continuous(breaks=propSex_revised$Year) + xlab("Year")+ coord_cartesian(ylim = c(0, 1)) + guides(color = guide_legend(title = "Age group"))+ geom_label_repel(aes(label = labels, x = Year, y = value), nudge_x = 0.1, na.rm = FALSE, color = "black", size = 2.5, label.size = NA, fill = NA)
+
+pSex_revised
+
+ggsave(plot=pSex_revised, filename = "images/vt/prop_sex_allyears.png", width = 10, height = 8)
+
+```
+
+### Significance testing for sex over all years
+
+```{r chiSquaredSexVT, echo=FALSE, message=FALSE, warning=FALSE}
+# initialize empty matrix, from https://stackoverflow.com/questions/32712301/create-empty-data-frame-with-column-names-by-assigning-a-string-vector
+# this will hold all the p values
+
+chisq_sex <- data.frame(matrix(ncol = 2, nrow = 0))
+cols <- c("Year", "p value")
+
+for(i in 1:length(vtlistYoung)){
+  # get the df you need -- you need the double brackets, see https://stackoverflow.com/questions/32007076/loop-through-list-of-data-frames
+  young <- vtlistYoung[[i]] 
+  old <- vtlistOld[[i]] 
+  # grab the year -- you only need the first element in the year column since all of them have the same value
+  year <- young$Year[1]
+  
+  sexfreqtable <- young %>% group_by(Sex_revised) %>% tally()
+  names(sexfreqtable)[names(sexfreqtable) == 'n'] <- 'Young'
+
+  sextableold <- old %>% group_by(Sex_revised) %>% tally()
+  names(sextableold)[names(sextableold) == 'n'] <- 'Old'
+
+  sextable <- merge(sexfreqtable, sextableold, by="Sex_revised")
+  
+  # convert the "race" column into row names so I get a table with only numeric values, from   https://stackoverflow.com/questions/5555408/convert-the-values-in-a-column-into-row-names-in-an-existing-data-frame
+
+  sexmat <- sextable[,-1]
+  rownames(sexmat) <- sextable[,1]
+
+  print(as.matrix(sexmat))
+  
+  # append year and p value to a vector, rounding to make it more legible
+  # I'm using Fisher's exact test if >20% of cell counts are <5, if not use chi squared
+  # I get >20% <5 from https://www.ccjm.org/content/84/9_suppl_2/e20
+  pvalue <- ifelse(sum(sexmat < 5)/(ncol(sexmat) * nrow(sexmat)) > 0.2, round(fisher.test(as.matrix(sexmat))$p.value, 4), round(chisq.test(as.matrix(sexmat))$p.value, 4))
+  
+  results <- c(year, pvalue)
+  
+  # add this to the chi squared df 
+  chisq_sex <- rbind(chisq_sex, results)
+
+}
+
+# for some reason it doesn't work if I do this before adding rows?
+colnames(chisq_sex) <- cols
+
+chisq_sex
+
+```
+
+### Race and sex of decedents {.tabset}
+
+#### Young
+
+```{r sexRaceTableYoung, echo=FALSE, message=FALSE, warning=FALSE}
+# create dummy df with race sex info for all years
+
+racesexmat <- data.frame(matrix(ncol = 4, nrow = 0))
+cols <- c("Year", "Race_sex", "Proportion", "Color")
+
+for(i in 1:length(vtlistYoung)){
+
+  # get the df you need -- you need the double brackets, see https://stackoverflow.com/questions/32007076/loop-through-list-of-data-frames
+  vt <- vtlistYoung[[i]] 
+  # grab the year -- you only need the first element in the year column sivte all of them have the same value
+  year <- vt$Year[1]
+
+raceSextitle <- paste("Race/ethnicity and sex distribution for", year, "VT opioid-detected \n overdose deaths in younger people")
+
+  
+raceSex <- ggplot(data=vt, aes(x=Race_sex, ..count..)) + 
+      geom_bar(aes(fill = Race_sex), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = -0.25, colour = "black", size = 7/.pt)+ ggtitle(raceSextitle)+ theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 7)) 
+
+print(raceSex)
+
+ggsave(plot=raceSex, filename = paste0("images/vt/raceSex", year, "_young.png"), width = 10, height = 8)
+
+raceSexProp <- ggplot(data=vt, aes(x=Race_sex, ..count..)) + 
+      geom_bar(aes(fill = Race_sex), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = round(..count../nrow(vt), 3)), stat = "count", vjust = -0.25, colour = "black", size = 7/.pt)+ ggtitle(raceSextitle)+ theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 7)) 
+
+print(raceSexProp)
+ggsave(plot=raceSexProp, filename = paste0("images/vt/raceSexProp", year, "_young.png"), width = 10, height = 8)
+
+
+# get the % of each race sex category
+vt <- vt %>% 
+  group_by(Race_sex) %>% 
+  count() %>% 
+  ungroup() %>% 
+  mutate(per=`n`/sum(`n`)) %>% 
+  arrange(desc(Race_sex))
+# create a label out of this
+vt$racesexlabel <- scales::percent(vt$per)
+
+# create a year label [for plotting]
+vt$Year <- year
+
+# automatically assign the color based on race sex value -- not doing this in preprocessing because I don't want this to be a global change
+# from https://stackoverflow.com/questions/39142596/r-ggplot-set-colour-for-specific-value
+
+vt$color <- ifelse(vt$Race_sex == "Black Female", "#e6d0a1", ifelse(vt$Race_sex == "Black Male", "#E69F00", ifelse(vt$Race_sex == "Hispanic Female", "#b3d4e8", ifelse(vt$Race_sex == "Hispanic Male", "#56B4E9", ifelse(vt$Race_sex == "Other Female", "#cca1b9", ifelse(vt$Race_sex == "Other Male", "#CC79A7", ifelse(vt$Race_sex == "White Female", "#a1a1a1", "#000000")))))))
+
+# grab the values i need from nc
+results <- select(vt, Year, Race_sex, per, color)
+  
+# add this to the chi squared df 
+racesexmat <- rbind(racesexmat, results)
+
+
+# plot into a pie chart -- for some reason I have to reverse the colors to get them to work right
+piechart <- ggplot(data=vt)+
+  geom_bar(aes(x="", y=per, fill=Race_sex), stat="identity", width = 1)+
+  coord_polar("y", start=0)+
+  theme_void()+ geom_label_repel(aes(label = racesexlabel, x = "", y = cumsum(per) - per/2), nudge_x = 0.02,
+                   size = 3, show.legend = F)+  scale_fill_manual(name = "Race/ethnicity and sex", values=rev(vt$color), labels = rev(vt$Race_sex))+ ggtitle(raceSextitle)+ theme(plot.title = element_text(hjust = 0.5), legend.position="right")  
+# geom_text(aes(x=1, y = cumsum(per) - per/2, label=label)) for regular labels [not repelling]
+
+print(piechart)
+
+ggsave(plot=piechart, filename = paste0("images/vt/pie", year, "_young.png"), width = 10, height = 8)
+
+}
+
+# for some reason it doesn't work if I do this before adding rows?
+colnames(racesexmat) <- cols
+
+#racesexmat
+
+
+# fill in missing years with NAs so they won't show up interpolated -- from https://stackoverflow.com/questions/65097273/r-how-to-fill-up-missing-year-values-in-a-data-frame
+#racesexmat <- racesexmat %>% complete(Year = 2009:2023)
+
+stackedarea <- ggplot(data = racesexmat, aes(x=Year, y=Proportion, fill=Race_sex)) + 
+    geom_area(aes(position = 'stack', group = Race_sex))+  scale_fill_manual(name = "Race/ethnicity and sex", values=rev(racesexmat$Color), labels = rev(racesexmat$Race_sex)) + ggtitle("Race/ethnicity and sex distribution for VT opioid-detected \n overdose deaths in younger people")+theme_bw()+ scale_x_continuous(n.breaks = length(yearList))+theme(plot.title = element_text(hjust = 0.5), legend.position="right")
+
+print(stackedarea)
+
+ggsave(plot=stackedarea, filename = paste0("images/vt/rs_area_", year, "_young.png"), width = 10, height = 8)
+
+
+
+```
+
+
+#### Old
+
+```{r sexRaceTableOld, echo=FALSE, message=FALSE, warning=FALSE}
+# create dummy df with race sex info for all years
+
+racesexmat <- data.frame(matrix(ncol = 4, nrow = 0))
+cols <- c("Year", "Race_sex", "Proportion", "Color")
+
+for(i in 1:length(vtlistOld)){
+
+  # get the df you need -- you need the double brackets, see https://stackoverflow.com/questions/32007076/loop-through-list-of-data-frames
+  vt <- vtlistOld[[i]] 
+  # grab the year -- you only need the first element in the year column since all of them have the same value
+  year <- vt$Year[1]
+
+raceSextitle <- paste("Race/ethnicity and sex distribution for", year, "VT opioid-detected \n overdose deaths in older people")
+
+  
+raceSex <- ggplot(data=vt, aes(x=Race_sex, ..count..)) + 
+      geom_bar(aes(fill = Race_sex), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = -0.25, colour = "black", size = 7/.pt)+ ggtitle(raceSextitle)+ theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 7)) 
+
+print(raceSex)
+
+ggsave(plot=raceSex, filename = paste0("images/vt/raceSex", year, "_old.png"), width = 10, height = 8)
+
+raceSexProp <- ggplot(data=vt, aes(x=Race_sex, ..count..)) + 
+      geom_bar(aes(fill = Race_sex), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = round(..count../nrow(vt), 3)), stat = "count", vjust = -0.25, colour = "black", size = 7/.pt)+ ggtitle(raceSextitle)+ theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 7)) 
+
+print(raceSexProp)
+
+ggsave(plot=raceSexProp, filename = paste0("images/vt/raceSexProp", year, "_old.png"), width = 10, height = 8)
+
+
+# get the % of each race sex category
+vt <- vt %>% 
+  group_by(Race_sex) %>% 
+  count() %>% 
+  ungroup() %>% 
+  mutate(per=`n`/sum(`n`)) %>% 
+  arrange(desc(Race_sex))
+# create a label out of this
+vt$racesexlabel <- scales::percent(vt$per)
+
+# create a year label [for plotting]
+vt$Year <- year
+
+# automatically assign the color based on race sex value -- not doing this in preprocessing because I don't want this to be a global change
+# from https://stackoverflow.com/questions/39142596/r-ggplot-set-colour-for-specific-value
+
+vt$color <- ifelse(vt$Race_sex == "Black Female", "#e6d0a1", ifelse(vt$Race_sex == "Black Male", "#E69F00", ifelse(vt$Race_sex == "Hispanic Female", "#b3d4e8", ifelse(vt$Race_sex == "Hispanic Male", "#56B4E9", ifelse(vt$Race_sex == "Other Female", "#cca1b9", ifelse(vt$Race_sex == "Other Male", "#CC79A7", ifelse(vt$Race_sex == "White Female", "#a1a1a1", "#000000")))))))
+
+# grab the values i need from nc
+results <- select(vt, Year, Race_sex, per, color)
+  
+# add this to the chi squared df 
+racesexmat <- rbind(racesexmat, results)
+
+
+# plot into a pie chart -- for some reason I have to reverse the colors to get them to work right
+piechart <- ggplot(data=vt)+
+  geom_bar(aes(x="", y=per, fill=Race_sex), stat="identity", width = 1)+
+  coord_polar("y", start=0)+
+  theme_void()+ geom_label_repel(aes(label = racesexlabel, x = "", y = cumsum(per) - per/2), nudge_x = 0.02,
+                   size = 3, show.legend = F)+  scale_fill_manual(name = "Race/ethnicity and sex", values=rev(vt$color), labels = rev(vt$Race_sex))+ ggtitle(raceSextitle)+ theme(plot.title = element_text(hjust = 0.5), legend.position="right")  
+# geom_text(aes(x=1, y = cumsum(per) - per/2, label=label)) for regular labels [not repelling]
+
+print(piechart)
+
+ggsave(plot=piechart, filename = paste0("images/vt/pie", year, "_old.png"), width = 10, height = 8)
+
+
+}
+
+# for some reason it doesn't work if I do this before adding rows?
+colnames(racesexmat) <- cols
+
+# racesexmat
+
+
+# fill in missing years with NAs so they won't show up interpolated -- from https://stackoverflow.com/questions/65097273/r-how-to-fill-up-missing-year-values-in-a-data-frame
+#racesexmat <- racesexmat %>% complete(Year = 2009:2023)
+
+stackedarea <- ggplot(data = racesexmat, aes(x=Year, y=Proportion, fill=Race_sex)) + 
+    geom_area(aes(position = 'stack', group = Race_sex))+  scale_fill_manual(name = "Race/ethnicity and sex", values=rev(racesexmat$Color), labels = rev(racesexmat$Race_sex)) + ggtitle("Race/ethnicity and sex distribution for VT opioid-detected \n overdose deaths in older people")+theme_bw() + theme(plot.title = element_text(hjust = 0.5), legend.position="right")+ scale_x_continuous(n.breaks = length(yearList))
+
+print(stackedarea)
+
+ggsave(plot=stackedarea, filename = paste0("images/vt/rs_area_", year, "_old.png"), width = 10, height = 8)
+
+
+
+```
+
+### Significance testing for race and sex {.tabset}
+
+
+```{r chiSquaredRaceSex, echo=FALSE, message=FALSE, warning=FALSE}
+# initialize empty matrix, from https://stackoverflow.com/questions/32712301/create-empty-data-frame-with-column-names-by-assigning-a-string-vector
+# this will hold all the p values
+
+chisq_racesex <- data.frame(matrix(ncol = 2, nrow = 0))
+cols <- c("Year", "p value")
+
+for(i in 1:length(vtlistYoung)){
+  # get the df you need -- you need the double brackets, see https://stackoverflow.com/questions/32007076/loop-through-list-of-data-frames
+  young <- vtlistYoung[[i]] 
+  old <- vtlistOld[[i]] 
+  # grab the year -- you only need the first element in the year column sivte all of them have the same value
+  year <- young$Year[1]
+  
+  racesexfreqtable <- young %>% group_by(Race_sex) %>% tally()
+  names(racesexfreqtable)[names(racesexfreqtable) == 'n'] <- 'Young'
+
+  racesextableold <- old %>% group_by(Race_sex) %>% tally()
+  names(racesextableold)[names(racesextableold) == 'n'] <- 'Old'
+
+  racesextable <- merge(racesexfreqtable, racesextableold, by="Race_sex")
+  
+  # convert the "race" column into row names so I get a table with only numeric values, from   https://stackoverflow.com/questions/5555408/convert-the-values-in-a-column-into-row-names-in-an-existing-data-frame
+
+  racesexmat <- racesextable[,-1]
+  rownames(racesexmat) <- racesextable[,1]
+
+  print(as.matrix(racesexmat))
+  
+  # append year and p value to a vector, rounding to make it more legible
+  # I'm using Fisher's exact test if >20% of cell counts are <5, if not use chi squared
+  # I get >20% <5 from https://www.ccjm.org/content/84/9_suppl_2/e20
+  pvalue <- ifelse(sum(racesexmat < 5)/(ncol(racesexmat) * nrow(racesexmat)) > 0.2, round(fisher.test(as.matrix(racesexmat))$p.value, 4), round(chisq.test(as.matrix(racesexmat))$p.value, 4))
+  
+  results <- c(year, pvalue)
+  
+  # add this to the chi squared df 
+  chisq_racesex <- rbind(chisq_racesex, results)
+
+}
+
+# for some reason it doesn't work if I do this before adding rows?
+colnames(chisq_racesex) <- cols
+
+chisq_racesex
+
+racesexmat
+
+```
+
+### Day of week {.tabset}
+
+#### Young
+
+```{r weekYoung, echo=FALSE, message=FALSE, warning=FALSE}
+for(i in 1:length(vtlistYoung)){
+
+  # get the df you need -- you need the double brackets, see https://stackoverflow.com/questions/32007076/loop-through-list-of-data-frames
+  vt <- vtlistYoung[[i]] 
+  # grab the year -- you only need the first element in the year column sivte all of them have the same value
+  year <- vt$Year[1]
+
+weekdaytitle <- paste("ODs per weekday for", year, "VT opioid-detected overdose deaths in younger people")
+
+  
+# ordering of variables on x axis from https://www.statology.org/ggplot-order-x-axis/
+# make sure to use scale_x_discrete!
+
+weekday <- ggplot(data=vt, aes(x=factor(Weekday, level=c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")), ..count..)) + geom_bar(aes(fill = as.character(Weekday)), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 0), breaks = vt$Weekday, labels = vt$Weekday) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black") + ggtitle(weekdaytitle)+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 7))+xlab("Weekday")
+
+print(weekday)
+
+ggsave(plot=weekday, filename = paste0("images/vt/weekday_", year, "_young.png"), width = 10, height = 8)
+
+
+weekday_prop <- ggplot(data=vt, aes(x=factor(Weekday, level=c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")), round(..count../nrow(vt), 3))) + geom_bar(aes(fill = as.character(Weekday)), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 0), breaks = vt$Weekday, labels = vt$Weekday) + theme_light() + geom_text(aes(label = round(..count../nrow(vt), 3)), stat = "count", vjust = 0, colour = "black") + ggtitle(weekdaytitle)+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 7))+xlab("Weekday")+ylab("Proportion")
+
+print(weekday_prop)
+
+ggsave(plot=weekday_prop, filename = paste0("images/vt/weekday_", year, "_young_prop.png"), width = 10, height = 8)
+}
+```
+
+
+#### Old
+
+```{r weekOld, echo=FALSE, message=FALSE, warning=FALSE}
+for(i in 1:length(vtlistOld)){
+
+  # get the df you need -- you need the double brackets, see https://stackoverflow.com/questions/32007076/loop-through-list-of-data-frames
+  vt <- vtlistOld[[i]] 
+  # grab the year -- you only need the first element in the year column sivte all of them have the same value
+  year <- vt$year[1]
+
+weekdaytitle <- paste("ODs per weekday for", year, "VT opioid-detected overdose deaths in older people")
+
+  
+# ordering of variables on x axis from https://www.statology.org/ggplot-order-x-axis/
+# make sure to use scale_x_discrete!
+
+weekday <- ggplot(data=vt, aes(x=factor(Weekday, level=c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")), ..count..)) + geom_bar(aes(fill = as.character(Weekday)), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 0), breaks = vt$Weekday, labels = vt$Weekday) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black") + ggtitle(weekdaytitle)+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 7))+xlab("Weekday")
+
+print(weekday)
+
+ggsave(plot=weekday, filename = paste0("images/vt/weekday_", year, "_old.png"), width = 10, height = 8)
+
+
+weekday_prop <- ggplot(data=vt, aes(x=factor(Weekday, level=c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")), round(..count../nrow(vt), 3))) + geom_bar(aes(fill = as.character(Weekday)), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 0), breaks = vt$Weekday, labels = vt$Weekday) + theme_light() + geom_text(aes(label = round(..count../nrow(vt), 3)), stat = "count", vjust = 0, colour = "black") + ggtitle(weekdaytitle)+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 7))+xlab("Weekday")+ylab("Proportion")
+
+print(weekday_prop)
+
+ggsave(plot=weekday_prop, filename = paste0("images/vt/weekday_", year, "_old_prop.png"), width = 10, height = 8)
+}
+```
+
+### Significance testing for day of week {.tabset}
+
+```{r chiSquaredWeekday, echo=FALSE, message=FALSE, warning=FALSE}
+# initialize empty matrix, from https://stackoverflow.com/questions/32712301/create-empty-data-frame-with-column-names-by-assigning-a-string-vector
+# this will hold all the p values
+
+chisq_weekday <- data.frame(matrix(ncol = 2, nrow = 0))
+cols <- c("Year", "p value")
+
+for(i in 1:length(vtlistYoung)){
+  # get the df you need -- you need the double brackets, see https://stackoverflow.com/questions/32007076/loop-through-list-of-data-frames
+  young <- vtlistYoung[[i]] 
+  old <- vtlistOld[[i]] 
+  # grab the year -- you only need the first element in the year column sivte all of them have the same value
+  year <- young$Year[1]
+  
+  # omit NAs because it seems to be having issues with that -- from https://stackoverflow.com/questions/11254524/omit-rows-containing-specific-column-of-na
+  young <- young[!is.na(young$Weekday),]
+  old <- old[!is.na(old$Weekday),]
+
+  
+  weekdayfreqtable <- young %>% group_by(Weekday) %>% tally()
+  names(weekdayfreqtable)[names(weekdayfreqtable) == 'n'] <- 'Young'
+
+  weekdaytableold <- old %>% group_by(Weekday) %>% tally()
+  names(weekdaytableold)[names(weekdaytableold) == 'n'] <- 'Old'
+
+  weekdaytable <- merge(weekdayfreqtable, weekdaytableold, by="Weekday")
+  
+  # convert the "race" column into row names so I get a table with only numeric values, from   https://stackoverflow.com/questions/5555408/convert-the-values-in-a-column-into-row-names-in-an-existing-data-frame
+
+  weekdaymat <- weekdaytable[,-1]
+  rownames(weekdaymat) <- weekdaytable[,1]
+
+  print(as.matrix(weekdaymat))
+  
+  # append year and p value to a vector, rounding to make it more legible
+  # I'm using Fisher's exact test if >20% of cell counts are <5, if not use chi squared
+  # I get >20% <5 from https://www.ccjm.org/content/84/9_suppl_2/e20
+  pvalue <- ifelse(sum(weekdaymat < 5)/(ncol(weekdaymat) * nrow(weekdaymat)) > 0.2, round(fisher.test(as.matrix(weekdaymat))$p.value, 4), round(chisq.test(as.matrix(weekdaymat))$p.value, 4))
+  
+  results <- c(year, pvalue)
+  
+  # add this to the chi squared df 
+  chisq_weekday <- rbind(chisq_weekday, results)
+
+}
+
+# for some reason it doesn't work if I do this before adding rows?
+colnames(chisq_weekday) <- cols
+
+chisq_weekday
+
+```
+
+### Month {.tabset}
+
+#### Young
+
+```{r monthYoung, echo=FALSE, message=FALSE, warning=FALSE}
+for(i in 1:length(vtlistYoung)){
+
+  # get the df you need -- you need the double brackets, see https://stackoverflow.com/questions/32007076/loop-through-list-of-data-frames
+  vt <- vtlistYoung[[i]] 
+  # grab the year -- you only need the first element in the year column sivte all of them have the same value
+  year <- vt$Year[1]
+  
+  monthtitle <- paste("ODs per month for", year, "VT opioid-detected overdose deaths in younger people")
+
+  
+month <- ggplot(data=vt, aes(x=Month, ..count..)) + geom_bar(aes(fill = as.character(Month)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 0), breaks = vt$Month, labels = vt$Month) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black") + ggtitle(monthtitle)+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 7))
+
+print(month)
+
+ggsave(plot=month, filename = paste0("images/vt/month_", year, "_young.png"), width = 10, height = 8)
+
+month_prop <- ggplot(data=vt, aes(x=Month, round(..count../nrow(vt), 3))) + geom_bar(aes(fill = as.character(Month)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 0), breaks = vt$Month, labels = vt$Month) + theme_light() + geom_text(aes(label =  round(..count../nrow(vt), 3)), stat = "count", vjust = 0, colour = "black") + ggtitle(monthtitle)+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 7))+ylab("Proportion")
+
+print(month_prop)
+
+ggsave(plot=month_prop, filename = paste0("images/vt/month_", year, "_young_prop.png"), width = 10, height = 8)
+
+
+}
+
+```
+
+
+#### Old
+
+```{r monthOld, echo=FALSE, message=FALSE, warning=FALSE}
+for(i in 1:length(vtlistOld)){
+
+  # get the df you need -- you need the double brackets, see https://stackoverflow.com/questions/32007076/loop-through-list-of-data-frames
+  vt <- vtlistOld[[i]] 
+  # grab the year -- you only need the first element in the year column sivte all of them have the same value
+  year <- vt$year[1]
+  
+  monthtitle <- paste("ODs per month for", year, "VT opioid-detected overdose deaths in older people")
+
+  
+month <- ggplot(data=vt, aes(x=Month, ..count..)) + geom_bar(aes(fill = as.character(Month)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 0), breaks = vt$Month, labels = vt$Month) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black") + ggtitle(monthtitle)+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 7))
+
+print(month)
+
+ggsave(plot=month, filename = paste0("images/vt/month_", year, "_old.png"), width = 10, height = 8)
+
+month_prop <- ggplot(data=vt, aes(x=Month, round(..count../nrow(vt), 3))) + geom_bar(aes(fill = as.character(Month)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 0), breaks = vt$Month, labels = vt$Month) + theme_light() + geom_text(aes(label =  round(..count../nrow(vt), 3)), stat = "count", vjust = 0, colour = "black") + ggtitle(monthtitle)+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 7))+ylab("Proportion")
+
+print(month_prop)
+
+ggsave(plot=month_prop, filename = paste0("images/vt/month_", year, "_old_prop.png"), width = 10, height = 8)
+
+
+}
+
+```
+
+### Significance testing for month {.tabset}
+
+```{r chiSquaredMonth, echo=FALSE, message=FALSE, warning=FALSE}
+# initialize empty matrix, from https://stackoverflow.com/questions/32712301/create-empty-data-frame-with-column-names-by-assigning-a-string-vector
+# this will hold all the p values
+
+chisq_month <- data.frame(matrix(ncol = 2, nrow = 0))
+cols <- c("Year", "p value")
+
+for(i in 1:length(vtlistYoung)){
+  # get the df you need -- you need the double brackets, see https://stackoverflow.com/questions/32007076/loop-through-list-of-data-frames
+  young <- vtlistYoung[[i]] 
+  old <- vtlistOld[[i]] 
+  # grab the year -- you only need the first element in the year column sivte all of them have the same value
+  year <- young$Year[1]
+  
+  monthfreqtable <- young %>% group_by(Month) %>% tally()
+  names(monthfreqtable)[names(monthfreqtable) == 'n'] <- 'Young'
+
+  monthtableold <- old %>% group_by(Month) %>% tally()
+  names(monthtableold)[names(monthtableold) == 'n'] <- 'Old'
+
+  monthtable <- merge(monthfreqtable, monthtableold, by="Month")
+  
+  # convert the "race" column into row names so I get a table with only numeric values, from   https://stackoverflow.com/questions/5555408/convert-the-values-in-a-column-into-row-names-in-an-existing-data-frame
+
+  monthmat <- monthtable[,-1]
+  rownames(monthmat) <- monthtable[,1]
+
+  print(as.matrix(monthmat))
+  
+  # append year and p value to a vector, rounding to make it more legible
+  # I'm using Fisher's exact test if >20% of cell counts are <5, if not use chi squared
+  # I get >20% <5 from https://www.ccjm.org/content/84/9_suppl_2/e20
+  pvalue <- ifelse(sum(monthmat < 5)/(ncol(monthmat) * nrow(monthmat)) > 0.2, round(fisher.test(as.matrix(monthmat))$p.value, 4), round(chisq.test(as.matrix(monthmat))$p.value, 4))
+  
+  results <- c(year, pvalue)
+  
+  # add this to the chi squared df 
+  chisq_month <- rbind(chisq_month, results)
+
+}
+
+# for some reason it doesn't work if I do this before adding rows?
+colnames(chisq_month) <- cols
+
+chisq_month
+
+```
+
+
+### Proportion of deaths involving fentanyl
+
+```{r propFent, echo=FALSE, message=FALSE, warning=FALSE}
+# unfortunately there are different variable names for each vt file so a for loop won't work :/
+
+# get proportion of fent for each year for younger people -- from https://stackoverflow.com/questions/28195996/count-number-of-rows-matching-a-criteria
+fentyoung <- c(sum(vt_2009_young$fentonly == 1)/nrow(vt_2009_young), sum(vt_2010_young$fentonly == 1)/nrow(vt_2010_young), sum(vt_2012_young$fentonly == 1)/nrow(vt_2012_young), sum(vt_2013_young$fentonly == 1)/nrow(vt_2013_young), sum(vt_2014_young$fentonly == 1)/nrow(vt_2014_young), sum(vt_2015_young$fentonly == 1)/nrow(vt_2015_young), sum(vt_2017_young$fentonly == 1)/nrow(vt_2017_young), sum(vt_2019_young$fentonly == 1)/nrow(vt_2019_young), sum(vt_2020_young$fentonly == 1)/nrow(vt_2020_young))
+
+# get proportion for older people
+fentold <- c(sum(vt_2009_old$fentonly == 1)/nrow(vt_2009_old), sum(vt_2010_old$fentonly == 1)/nrow(vt_2010_old), sum(vt_2012_old$fentonly == 1)/nrow(vt_2012_old), sum(vt_2013_old$fentonly == 1)/nrow(vt_2013_old), sum(vt_2014_old$fentonly == 1)/nrow(vt_2014_old), sum(vt_2015_old$fentonly == 1)/nrow(vt_2015_old), sum(vt_2017_old$fentonly == 1)/nrow(vt_2017_old), sum(vt_2019_old$fentonly == 1)/nrow(vt_2019_old), sum(vt_2020_old$fentonly == 1)/nrow(vt_2020_old))
+
+# combine vectors into df
+propfent <- data.frame(yearList, fentyoung, fentold)
+
+# change the col names to be more informative
+names(propfent) <- c("Year", "Younger", "Older")
+
+# create grouped bar plot, from https://stackoverflow.com/questions/72449952/making-a-grouped-bar-chart-in-r
+# getting the labels in the right position from https://stackoverflow.com/questions/37587288/ggplot-label-bars-in-grouped-bar-plot
+# info on changing legend title from here https://stackoverflow.com/questions/41649929/how-to-modify-a-legend-title-in-a-barplot-with-ggplot
+# the scale x continuous is there because for some reason adding 2023 data messed up the x axis, see https://stackoverflow.com/questions/72051789/how-to-display-all-values-on-x-and-y-axes-in-r-ggplot2
+
+# ivtreasing line size from https://stackoverflow.com/questions/14794599/how-to-change-line-width-in-ggplot
+# line graph info from https://www.sthda.com/english/wiki/ggplot2-line-plot-quick-start-guide-r-software-and-data-visualization
+
+
+pfentlong  <- propfent |>
+  # Reshape data to long format
+  pivot_longer(Younger:Older)
+
+# create labels with the value of each proportion
+pfentlong$labels <- round(pfentlong$value, 2)
+
+pfent <-  ggplot(data = pfentlong, aes(x = Year, y = value, fill = name, group=name, color=factor(name))) +
+  # Implement a grouped bar chart
+  # Implement a line graph
+  geom_line(stat = "identity", size = 1) + geom_point(size = 2) + theme_light() + ggtitle("Proportion of fentanyl-detected deaths in VT \n by age group, 2009-2023") + ylab("Proportion") + theme(plot.title = element_text(hjust = 0.5)) + scale_fill_discrete(guide="none") + scale_x_continuous(breaks=propfent$Year) + xlab("Year")+ coord_cartesian(ylim = c(0, 1)) + guides(color = guide_legend(title = "Age group"))+ geom_label_repel(aes(label = labels, x = Year, y = value), nudge_x = 0.05, na.rm = FALSE, color = "black", size = 2.5, label.size = NA, fill = NA)
+
+pfent
+
+ggsave(plot=pfent, filename = "images/vt/prop_fent.png", width = 10, height = 8)
+```
+
+
+### Significance testing for the number of fentanyl-detected deaths
+
+```{r chiSquaredFent, echo=FALSE, message=FALSE, warning=FALSE}
+# get frequency of each race for old and young, from https://stackoverflow.com/questions/48562288/frequevty-of-each-unique-combination-in-data-frame
+
+# get proportion of fent for each year for younger people -- from https://stackoverflow.com/questions/28195996/count-number-of-rows-matching-a-criteria
+fentyoungcount <- c(sum(vt_2009_young$fentonly == 1), sum(vt_2010_young$fentonly == 1), sum(vt_2012_young$fentonly == 1), sum(vt_2013_young$fentonly == 1), sum(vt_2014_young$fentonly == 1), sum(vt_2015_young$fentonly == 1), sum(vt_2017_young$fentonly == 1), sum(vt_2019_young$fentonly == 1), sum(vt_2020_young$fentonly == 1))
+
+# get proportion for older people
+fentoldcount <- c(sum(vt_2009_old$fentonly == 1), sum(vt_2010_old$fentonly == 1), sum(vt_2012_old$fentonly == 1), sum(vt_2013_old$fentonly == 1), sum(vt_2014_old$fentonly == 1), sum(vt_2015_old$fentonly == 1), sum(vt_2017_old$fentonly == 1), sum(vt_2019_old$fentonly == 1), sum(vt_2020_old$fentonly == 1))
+
+# combine vectors into df
+fentcount <- data.frame(yearList, fentyoungcount, fentoldcount)
+
+# change the col names to be more informative
+names(fentcount) <- c("Year", "Younger", "Older")
+
+# convert the "race_sex" column into row names so I get a table with only numeric values, from https://stackoverflow.com/questions/5555408/convert-the-values-in-a-column-into-row-names-in-an-existing-data-frame
+
+fentchi <- fentcount[,-1]
+rownames(fentchi) <- fentcount[,1]
+
+as.matrix(fentchi)
+
+# looks like I can just use any matrix for chisq.test, from https://researchguides.library.vanderbilt.edu/c.php?g=156859&p=3058795
+
+  
+  # append year and p value to a vector, rounding to make it more legible
+  # I'm using Fisher's exact test if >20% of cell counts are <5, if not use chi squared
+  # I get >20% <5 from https://www.ccjm.org/content/84/9_suppl_2/e20
+  pvalue <- ifelse(sum(fentchi < 5)/(ncol(fentchi) * nrow(fentchi)) > 0.2, fisher.test(as.matrix(fentchi), workspace=2e7)$p.value, chisq.test(as.matrix(fentchi))$p.value)
+  
+  pvalue
+  
+
+```
+
+### Proportion of deaths involving xylazine
+
+```{r propXyl, echo=FALSE, message=FALSE, warning=FALSE}
+
+# unfortunately there are different variable names for each vt file so a for loop won't work :/
+
+# get proportion of fent for each year for younger people -- from https://stackoverflow.com/questions/28195996/count-number-of-rows-matching-a-criteria
+xylyoung <- c(sum(vt_2009_young$xylazine == 1)/nrow(vt_2009_young), sum(vt_2010_young$xylazine == 1)/nrow(vt_2010_young),  sum(vt_2012_young$xylazine == 1)/nrow(vt_2012_young), sum(vt_2013_young$xylazine == 1)/nrow(vt_2013_young), sum(vt_2014_young$xylazine == 1)/nrow(vt_2014_young), sum(vt_2015_young$xylazine == 1)/nrow(vt_2015_young), sum(vt_2017_young$xylazine == 1)/nrow(vt_2017_young), sum(vt_2019_young$xylazine == 1)/nrow(vt_2019_young), sum(vt_2020_young$xylazine == 1)/nrow(vt_2020_young))
+
+# get proportion for older people
+xylold <- c(sum(vt_2009_old$xylazine == 1)/nrow(vt_2009_old), sum(vt_2010_old$xylazine == 1)/nrow(vt_2010_old),  sum(vt_2012_old$xylazine == 1)/nrow(vt_2012_old), sum(vt_2013_old$xylazine == 1)/nrow(vt_2013_old), sum(vt_2014_old$xylazine == 1)/nrow(vt_2014_old), sum(vt_2015_old$xylazine == 1)/nrow(vt_2015_old), sum(vt_2017_old$xylazine == 1)/nrow(vt_2017_old), sum(vt_2019_old$xylazine == 1)/nrow(vt_2019_old), sum(vt_2020_old$xylazine == 1)/nrow(vt_2020_old))
+
+
+# combine vectors into df
+propxyl <- data.frame(yearList, xylyoung, xylold)
+
+# change the col names to be more informative
+names(propxyl) <- c("Year", "Younger", "Older")
+
+# create grouped bar plot, from https://stackoverflow.com/questions/72449952/making-a-grouped-bar-chart-in-r
+# getting the labels in the right position from https://stackoverflow.com/questions/37587288/ggplot-label-bars-in-grouped-bar-plot
+# info on changing legend title from here https://stackoverflow.com/questions/41649929/how-to-modify-a-legend-title-in-a-barplot-with-ggplot
+
+# ivtreasing line size from https://stackoverflow.com/questions/14794599/how-to-change-line-width-in-ggplot
+# line graph info from https://www.sthda.com/english/wiki/ggplot2-line-plot-quick-start-guide-r-software-and-data-visualization
+
+
+pxyllong  <- propxyl |>
+  # Reshape data to long format
+  pivot_longer(Younger:Older)
+
+# create labels with the value of each proportion
+pxyllong$labels <- round(pxyllong$value, 2)
+
+pxyl <-  ggplot(data = pxyllong, aes(x = Year, y = value, fill = name, group=name, color=factor(name))) +
+  # Implement a grouped bar chart
+  # Implement a line graph
+  geom_line(stat = "identity", size = 1) + geom_point(size = 2) + theme_light() + ggtitle("Proportion of xylazine in opioid-detected overdose deaths \n in VT by age group, 2009-2023") + ylab("Proportion") + theme(plot.title = element_text(hjust = 0.5)) + scale_fill_discrete(guide="none") + scale_x_continuous(breaks=propxyl$Year) + xlab("Year")+ coord_cartesian(ylim = c(0, 1)) + guides(color = guide_legend(title = "Age group"))+ geom_label_repel(aes(label = labels, x = Year, y = value), nudge_x = 0.05, na.rm = FALSE, color = "black", size = 2.5, label.size = NA, fill = NA)
+
+pxyl
+
+ggsave(plot=pxyl, filename = "images/vt/prop_xyl_old.png", width = 10, height = 8)
+
+```
+
+### Significance testing for the number of xylazine-detected deaths
+
+Didn't expect this to be informative and it wasn't, but I've done it for the sake of completeness. 
+
+```{r chiSquaredXyl, echo=FALSE, message=FALSE, warning=FALSE}
+# get frequevty of each race for old and young, from https://stackoverflow.com/questions/48562288/frequevty-of-each-unique-combination-in-data-frame
+
+# get proportion of fent for each year for younger people -- from https://stackoverflow.com/questions/28195996/count-number-of-rows-matching-a-criteria
+xylyoungcount <- c(sum(vt_2009_young$xylazine == 1), sum(vt_2010_young$xylazine == 1), sum(vt_2012_young$xylazine == 1), sum(vt_2013_young$xylazine == 1), sum(vt_2014_young$xylazine == 1), sum(vt_2015_young$xylazine == 1), sum(vt_2017_young$xylazine == 1), sum(vt_2019_young$xylazine == 1), sum(vt_2020_young$xylazine == 1))
+
+# get proportion for older people
+xyloldcount <- c(sum(vt_2009_old$xylazine == 1), sum(vt_2010_old$xylazine == 1), sum(vt_2012_old$xylazine == 1), sum(vt_2013_old$xylazine == 1), sum(vt_2014_old$xylazine == 1), sum(vt_2015_old$xylazine == 1), sum(vt_2017_old$xylazine == 1), sum(vt_2019_old$xylazine == 1), sum(vt_2020_old$xylazine == 1))
+
+# combine vectors into df
+xylcount <- data.frame(yearList, xylyoungcount, xyloldcount)
+
+# change the col names to be more informative
+names(xylcount) <- c("Year", "Younger", "Older")
+
+# convert the "race_sex" column into row names so I get a table with only numeric values, from https://stackoverflow.com/questions/5555408/convert-the-values-in-a-column-into-row-names-in-an-existing-data-frame
+
+xylchi <- xylcount[,-1]
+rownames(xylchi) <- xylcount[,1]
+
+as.matrix(xylchi)
+
+# looks like I can just use any matrix for chisq.test, from https://researchguides.library.vanderbilt.edu/c.php?g=156859&p=3058795
+
+  # I'm using Fisher's exact test if >20% of cell counts are <5, if not use chi squared
+  # I get >20% <5 from https://www.ccjm.org/content/84/9_suppl_2/e20
+  pvalue <- ifelse(sum(xylchi < 5)/(ncol(xylchi) * nrow(xylchi)) > 0.2, fisher.test(as.matrix(xylchi), workspace=2e6)$p.value, chisq.test(as.matrix(xylchi))$p.value)
+  
+  pvalue
+```
+
+### Proportion of deaths involving gabapentin
+
+```{r propGab, echo=FALSE, message=FALSE, warning=FALSE}
+
+# unfortunately there are different variable names for each vt file so a for loop won't work :/
+
+# get proportion of gabapentin for each year for younger people -- from https://stackoverflow.com/questions/28195996/count-number-of-rows-matching-a-criteria
+gabyoung <- c(sum(vt_2009_young$gabapentin == 1)/nrow(vt_2009_young), sum(vt_2010_young$gabapentin == 1)/nrow(vt_2010_young), sum(vt_2012_young$gabapentin == 1)/nrow(vt_2012_young), sum(vt_2013_young$gabapentin == 1)/nrow(vt_2013_young), sum(vt_2014_young$gabapentin == 1)/nrow(vt_2014_young), sum(vt_2015_young$gabapentin == 1)/nrow(vt_2015_young), sum(vt_2017_young$gabapentin == 1)/nrow(vt_2017_young), sum(vt_2019_young$gabapentin == 1)/nrow(vt_2019_young), sum(vt_2020_young$gabapentin == 1)/nrow(vt_2020_young))
+
+# get proportion for older people
+gabold <- c(sum(vt_2009_old$gabapentin == 1)/nrow(vt_2009_old), sum(vt_2010_old$gabapentin == 1)/nrow(vt_2010_old), sum(vt_2012_old$gabapentin == 1)/nrow(vt_2012_old), sum(vt_2013_old$gabapentin == 1)/nrow(vt_2013_old), sum(vt_2014_old$gabapentin == 1)/nrow(vt_2014_old), sum(vt_2015_old$gabapentin == 1)/nrow(vt_2015_old), sum(vt_2017_old$gabapentin == 1)/nrow(vt_2017_old), sum(vt_2019_old$gabapentin == 1)/nrow(vt_2019_old), sum(vt_2020_old$gabapentin == 1)/nrow(vt_2020_old))
+
+# combine vectors into df
+propgab <- data.frame(yearList, gabyoung, gabold)
+
+# change the col names to be more informative
+names(propgab) <- c("Year", "Younger", "Older")
+
+# create grouped bar plot, from https://stackoverflow.com/questions/72449952/making-a-grouped-bar-chart-in-r
+# getting the labels in the right position from https://stackoverflow.com/questions/37587288/ggplot-label-bars-in-grouped-bar-plot
+# info on changing legend title from here https://stackoverflow.com/questions/41649929/how-to-modify-a-legend-title-in-a-barplot-with-ggplot
+
+# ivtreasing line size from https://stackoverflow.com/questions/14794599/how-to-change-line-width-in-ggplot
+# line graph info from https://www.sthda.com/english/wiki/ggplot2-line-plot-quick-start-guide-r-software-and-data-visualization
+
+
+pgablong  <- propgab |>
+  # Reshape data to long format
+  pivot_longer(Younger:Older)
+
+# create labels with the value of each proportion
+pgablong$labels <- round(pgablong$value, 2)
+
+pgab <-  ggplot(data = pgablong, aes(x = Year, y = value, fill = name, group=name, color=factor(name))) +
+  # Implement a grouped bar chart
+  # Implement a line graph
+  geom_line(stat = "identity", size = 1) + geom_point(size = 2) + theme_light() + ggtitle("Proportion of gabapentin in opioid-detected overdose deaths \n in VT by age group, 2009-2023") + ylab("Proportion") + theme(plot.title = element_text(hjust = 0.5)) + scale_fill_discrete(guide="none") + scale_x_continuous(breaks=propgab$Year) + xlab("Year")+ coord_cartesian(ylim = c(0, 1)) + guides(color = guide_legend(title = "Age group"))+ geom_label_repel(aes(label = labels, x = Year, y = value), nudge_x = 0.05, na.rm = FALSE, color = "black", size = 2.5, label.size = NA, fill = NA)
+
+pgab
+
+ggsave(plot=pgab, filename = "images/vt/prop_gab_old.png", width = 10, height = 8)
+```
+
+### Significance testing for the number of gabepentin-detected deaths
+
+```{r chiSquaredGab, echo=FALSE, message=FALSE, warning=FALSE}
+# get frequevty of each race for old and young, from https://stackoverflow.com/questions/48562288/frequevty-of-each-unique-combination-in-data-frame
+
+# get proportion of gab for each year for younger people -- from https://stackoverflow.com/questions/28195996/count-number-of-rows-matching-a-criteria
+gabyoungcount <- c(sum(vt_2009_young$gabapentin == 1), sum(vt_2010_young$gabapentin == 1), sum(vt_2012_young$gabapentin == 1), sum(vt_2013_young$gabapentin == 1), sum(vt_2014_young$gabapentin == 1), sum(vt_2015_young$gabapentin == 1), sum(vt_2017_young$gabapentin == 1), sum(vt_2019_young$gabapentin == 1), sum(vt_2020_young$gabapentin == 1))
+
+# get proportion for older people
+gaboldcount <- c(sum(vt_2009_old$gabapentin == 1), sum(vt_2010_old$gabapentin == 1), sum(vt_2012_old$gabapentin == 1), sum(vt_2013_old$gabapentin == 1), sum(vt_2014_old$gabapentin == 1), sum(vt_2015_old$gabapentin == 1), sum(vt_2017_old$gabapentin == 1), sum(vt_2019_old$gabapentin == 1), sum(vt_2020_old$gabapentin == 1))
+
+# combine vectors into df
+gabcount <- data.frame(yearList, gabyoungcount, gaboldcount)
+
+# change the col names to be more informative
+names(gabcount) <- c("Year", "Younger", "Older")
+
+# convert the "race_sex" column into row names so I get a table with only numeric values, from https://stackoverflow.com/questions/5555408/convert-the-values-in-a-column-into-row-names-in-an-existing-data-frame
+
+gabchi <- gabcount[,-1]
+rownames(gabchi) <- gabcount[,1]
+
+as.matrix(gabchi)
+
+# looks like I can just use any matrix for chisq.test, from https://researchguides.library.vanderbilt.edu/c.php?g=156859&p=3058795
+# getting rid of the nonzero entries for testing
+
+  # I'm using Fisher's exact test if >20% of cell counts are <5, if not use chi squared
+  # I get >20% <5 from https://www.ccjm.org/content/84/9_suppl_2/e20
+  pvalue <- ifelse(sum(gabchi < 5)/(ncol(gabchi) * nrow(gabchi)) > 0.2, fisher.test(as.matrix(gabchi), workspace=2e6)$p.value, chisq.test(as.matrix(gabchi))$p.value)
+  
+  pvalue
+```
+
+### Proportion of deaths involving pharmaceutical opioids
+
+```{r propPharma, echo=FALSE, message=FALSE, warning=FALSE}
+
+# unfortunately there are different variable names for each vt file so a for loop won't work :/
+
+# get proportion of pharma for each year for younger people -- from https://stackoverflow.com/questions/28195996/count-number-of-rows-matching-a-criteria
+pharmayoung <- c(sum(vt_2009_young$pharma == 1)/nrow(vt_2009_young), sum(vt_2010_young$pharma == 1)/nrow(vt_2010_young), sum(vt_2012_young$pharma == 1)/nrow(vt_2012_young), sum(vt_2013_young$pharma == 1)/nrow(vt_2013_young), sum(vt_2014_young$pharma == 1)/nrow(vt_2014_young), sum(vt_2015_young$pharma == 1)/nrow(vt_2015_young), sum(vt_2017_young$pharma == 1)/nrow(vt_2017_young), sum(vt_2019_young$pharma == 1)/nrow(vt_2019_young), sum(vt_2020_young$pharma == 1)/nrow(vt_2020_young))
+
+# get proportion for older people
+pharmaold <- c(sum(vt_2009_old$pharma == 1)/nrow(vt_2009_old), sum(vt_2010_old$pharma == 1)/nrow(vt_2010_old), sum(vt_2012_old$pharma == 1)/nrow(vt_2012_old), sum(vt_2013_old$pharma == 1)/nrow(vt_2013_old), sum(vt_2014_old$pharma == 1)/nrow(vt_2014_old), sum(vt_2015_old$pharma == 1)/nrow(vt_2015_old), sum(vt_2017_old$pharma == 1)/nrow(vt_2017_old), sum(vt_2019_old$pharma == 1)/nrow(vt_2019_old), sum(vt_2020_old$pharma == 1)/nrow(vt_2020_old))
+
+# combine vectors into df
+proppharma <- data.frame(yearList, pharmayoung, pharmaold)
+
+# change the col names to be more informative
+names(proppharma) <- c("Year", "Younger", "Older")
+
+# create grouped bar plot, from https://stackoverflow.com/questions/72449952/making-a-grouped-bar-chart-in-r
+# getting the labels in the right position from https://stackoverflow.com/questions/37587288/ggplot-label-bars-in-grouped-bar-plot
+# info on changing legend title from here https://stackoverflow.com/questions/41649929/how-to-modify-a-legend-title-in-a-barplot-with-ggplot
+
+# ivtreasing line size from https://stackoverflow.com/questions/14794599/how-to-change-line-width-in-ggplot
+# line graph info from https://www.sthda.com/english/wiki/ggplot2-line-plot-quick-start-guide-r-software-and-data-visualization
+
+
+ppharmalong  <- proppharma |>
+  # Reshape data to long format
+  pivot_longer(Younger:Older)
+
+# create labels with the value of each proportion
+ppharmalong$labels <- round(ppharmalong$value, 2)
+
+ppharma <-  ggplot(data = ppharmalong, aes(x = Year, y = value, fill = name, group=name, color=factor(name))) +
+  # Implement a grouped bar chart
+  # Implement a line graph
+  geom_line(stat = "identity", size = 1) + geom_point(size = 2) + theme_light() + ggtitle("Proportion of pharmaceutical opioid-detected overdose deaths in VT \n by age group, 2009-2023") + ylab("Proportion") + theme(plot.title = element_text(hjust = 0.5)) + scale_fill_discrete(guide="none") + scale_x_continuous(breaks=proppharma$Year) + xlab("Year")+ coord_cartesian(ylim = c(0, 1)) + guides(color = guide_legend(title = "Age group"))+ geom_label_repel(aes(label = labels, x = Year, y = value), nudge_x = 0.05, na.rm = FALSE, color = "black", size = 2.5, label.size = NA, fill = NA)
+
+ppharma
+
+ggsave(plot=ppharma, filename = "images/vt/prop_pharma_old.png", width = 10, height = 8)
+```
+
+### Significance testing for the number of pharma-detected deaths
+
+```{r chiSquaredPharma, echo=FALSE, message=FALSE, warning=FALSE}
+# get frequevty of each race for old and young, from https://stackoverflow.com/questions/48562288/frequevty-of-each-unique-combination-in-data-frame
+
+# get proportion of gab for each year for younger people -- from https://stackoverflow.com/questions/28195996/count-number-of-rows-matching-a-criteria
+pharmayoungcount <- c(sum(vt_2009_young$pharma == 1), sum(vt_2010_young$pharma == 1), sum(vt_2012_young$pharma == 1), sum(vt_2013_young$pharma == 1), sum(vt_2014_young$pharma == 1), sum(vt_2015_young$pharma == 1), sum(vt_2017_young$pharma == 1), sum(vt_2019_young$pharma == 1), sum(vt_2020_young$pharma == 1))
+
+# get proportion for older people
+pharmaoldcount <- c(sum(vt_2009_old$pharma == 1), sum(vt_2010_old$pharma == 1), sum(vt_2012_old$pharma == 1), sum(vt_2013_old$pharma == 1), sum(vt_2014_old$pharma == 1), sum(vt_2015_old$pharma == 1), sum(vt_2017_old$pharma == 1), sum(vt_2019_old$pharma == 1), sum(vt_2020_old$pharma == 1))
+
+# combine vectors into df
+pharmacount <- data.frame(yearList, pharmayoungcount, pharmaoldcount)
+
+# change the col names to be more informative
+names(pharmacount) <- c("Year", "Younger", "Older")
+
+# convert the "race_sex" column into row names so I get a table with only numeric values, from https://stackoverflow.com/questions/5555408/convert-the-values-in-a-column-into-row-names-in-an-existing-data-frame
+
+pharmachi <- pharmacount[,-1]
+rownames(pharmachi) <- pharmacount[,1]
+
+as.matrix(pharmachi)
+
+# looks like I can just use any matrix for chisq.test, from https://researchguides.library.vanderbilt.edu/c.php?g=156859&p=3058795
+# getting rid of the nonzero entries for testing
+
+  # I'm using Fisher's exact test if >20% of cell counts are <5, if not use chi squared
+  # I get >20% <5 from https://www.ccjm.org/content/84/9_suppl_2/e20
+  pvalue <- ifelse(sum(pharmachi < 5)/(ncol(pharmachi) * nrow(pharmachi)) > 0.2, fisher.test(as.matrix(pharmachi), workspace=2e6)$p.value, chisq.test(as.matrix(pharmachi))$p.value)
+  
+  pvalue
+```
+
+
+### Proportion of deaths involving stimulants
+
+```{r propCoke, echo=FALSE, message=FALSE, warning=FALSE}
+
+# unfortunately there are different variable names for each vt file so a for loop won't work :/
+
+# get proportion of cocaine for each year for younger people -- from https://stackoverflow.com/questions/28195996/count-number-of-rows-matching-a-criteria
+cokeyoung <- c(sum(vt_2009_young$cocaine == 1)/nrow(vt_2009_young), sum(vt_2010_young$cocaine == 1)/nrow(vt_2010_young), sum(vt_2012_young$cocaine == 1)/nrow(vt_2012_young), sum(vt_2013_young$cocaine == 1)/nrow(vt_2013_young), sum(vt_2014_young$cocaine == 1)/nrow(vt_2014_young), sum(vt_2015_young$cocaine == 1)/nrow(vt_2015_young), sum(vt_2017_young$cocaine == 1)/nrow(vt_2017_young), sum(vt_2019_young$cocaine == 1)/nrow(vt_2019_young), sum(vt_2020_young$cocaine == 1)/nrow(vt_2020_young))
+
+# get proportion for older people
+cokeold <- c(sum(vt_2009_old$cocaine == 1)/nrow(vt_2009_old), sum(vt_2010_old$cocaine == 1)/nrow(vt_2010_old), sum(vt_2012_old$cocaine == 1)/nrow(vt_2012_old), sum(vt_2013_old$cocaine == 1)/nrow(vt_2013_old), sum(vt_2014_old$cocaine == 1)/nrow(vt_2014_old), sum(vt_2015_old$cocaine == 1)/nrow(vt_2015_old), sum(vt_2017_old$cocaine == 1)/nrow(vt_2017_old), sum(vt_2019_old$cocaine == 1)/nrow(vt_2019_old), sum(vt_2020_old$cocaine == 1)/nrow(vt_2020_old))
+
+# combine vectors into df
+propcoke <- data.frame(yearList, cokeyoung, cokeold)
+
+# change the col names to be more informative
+names(propcoke) <- c("Year", "Younger", "Older")
+
+# create grouped bar plot, from https://stackoverflow.com/questions/72449952/making-a-grouped-bar-chart-in-r
+# getting the labels in the right position from https://stackoverflow.com/questions/37587288/ggplot-label-bars-in-grouped-bar-plot
+# info on changing legend title from here https://stackoverflow.com/questions/41649929/how-to-modify-a-legend-title-in-a-barplot-with-ggplot
+
+# ivtreasing line size from https://stackoverflow.com/questions/14794599/how-to-change-line-width-in-ggplot
+# line graph info from https://www.sthda.com/english/wiki/ggplot2-line-plot-quick-start-guide-r-software-and-data-visualization
+
+pcokelong  <- propcoke |>
+  # Reshape data to long format
+  pivot_longer(Younger:Older)
+
+# create labels with the value of each proportion
+pcokelong$labels <- round(pcokelong$value, 2)
+
+pcoke <-  ggplot(data = pcokelong, aes(x = Year, y = value, fill = name, group=name, color=factor(name))) +
+  # Implement a grouped bar chart
+  # Implement a line graph
+  geom_line(stat = "identity", size = 1) + geom_point(size = 2) + theme_light() + ggtitle("Proportion of stimulants in opioid-detected overdose deaths \n in VT by age group, 2009-2023") + ylab("Proportion") + theme(plot.title = element_text(hjust = 0.5)) + scale_fill_discrete(guide="none") + scale_x_continuous(breaks=propcoke$Year) + xlab("Year")+ coord_cartesian(ylim = c(0, 1)) + guides(color = guide_legend(title = "Age group"))+ geom_label_repel(aes(label = labels, x = Year, y = value), nudge_x = 0.05, na.rm = FALSE, color = "black", size = 2.5, label.size = NA, fill = NA)
+
+pcoke
+
+ggsave(plot=pcoke, filename = "images/vt/prop_coke_old.png", width = 10, height = 8)
+```
+
+### Significance testing for the number of stimulant-detected deaths
+
+```{r chiSquaredCoke, echo=FALSE, message=FALSE, warning=FALSE}
+# get frequevty of each race for old and young, from https://stackoverflow.com/questions/48562288/frequevty-of-each-unique-combination-in-data-frame
+
+# get proportion of coke for each year for younger people -- from https://stackoverflow.com/questions/28195996/count-number-of-rows-matching-a-criteria
+cokeyoungcount <- c(sum(vt_2009_young$cocaine == 1), sum(vt_2010_young$cocaine == 1), sum(vt_2012_young$cocaine == 1), sum(vt_2013_young$cocaine == 1), sum(vt_2014_young$cocaine == 1), sum(vt_2015_young$cocaine == 1), sum(vt_2017_young$cocaine == 1), sum(vt_2019_young$cocaine == 1), sum(vt_2020_young$cocaine == 1))
+
+# get proportion for older people
+cokeoldcount <- c(sum(vt_2009_old$cocaine == 1), sum(vt_2010_old$cocaine == 1), sum(vt_2012_old$cocaine == 1), sum(vt_2013_old$cocaine == 1), sum(vt_2014_old$cocaine == 1), sum(vt_2015_old$cocaine == 1), sum(vt_2017_old$cocaine == 1), sum(vt_2019_old$cocaine == 1), sum(vt_2020_old$cocaine == 1))
+
+# combine vectors into df
+cokecount <- data.frame(yearList, cokeyoungcount, cokeoldcount)
+
+# change the col names to be more informative
+names(cokecount) <- c("Year", "Younger", "Older")
+
+# convert the "race_sex" column into row names so I get a table with only numeric values, from https://stackoverflow.com/questions/5555408/convert-the-values-in-a-column-into-row-names-in-an-existing-data-frame
+
+cokechi <- cokecount[,-1]
+rownames(cokechi) <- cokecount[,1]
+
+as.matrix(cokechi)
+
+# looks like I can just use any matrix for chisq.test, from https://researchguides.library.vanderbilt.edu/c.php?g=156859&p=3058795
+  # I'm using Fisher's exact test if >20% of cell counts are <5, if not use chi squared
+  # I get >20% <5 from https://www.ccjm.org/content/84/9_suppl_2/e20
+  pvalue <- ifelse(sum(cokechi < 5)/(ncol(cokechi) * nrow(cokechi)) > 0.2, fisher.test(as.matrix(cokechi), workspace=2e6)$p.value, chisq.test(as.matrix(cokechi))$p.value)
+  
+  pvalue
+```
+
+### Proportion of deaths involving alcohol
+
+```{r propEtOH, echo=FALSE, message=FALSE, warning=FALSE}
+
+# unfortunately there are different variable names for each vt file so a for loop won't work :/
+
+# get proportion of alcohol for each year for younger people -- from https://stackoverflow.com/questions/28195996/count-number-of-rows-matching-a-criteria
+etohyoung <- c(sum(vt_2009_young$etoh == 1)/nrow(vt_2009_young), sum(vt_2010_young$etoh == 1)/nrow(vt_2010_young), sum(vt_2012_young$etoh == 1)/nrow(vt_2012_young), sum(vt_2013_young$etoh == 1)/nrow(vt_2013_young), sum(vt_2014_young$etoh == 1)/nrow(vt_2014_young), sum(vt_2015_young$etoh == 1)/nrow(vt_2015_young), sum(vt_2017_young$etoh == 1)/nrow(vt_2017_young), sum(vt_2019_young$etoh == 1)/nrow(vt_2019_young), sum(vt_2020_young$etoh == 1)/nrow(vt_2020_young))
+
+# get proportion for older people
+etohold <- c(sum(vt_2009_old$etoh == 1)/nrow(vt_2009_old), sum(vt_2010_old$etoh == 1)/nrow(vt_2010_old), sum(vt_2012_old$etoh == 1)/nrow(vt_2012_old), sum(vt_2013_old$etoh == 1)/nrow(vt_2013_old), sum(vt_2014_old$etoh == 1)/nrow(vt_2014_old), sum(vt_2015_old$etoh == 1)/nrow(vt_2015_old), sum(vt_2017_old$etoh == 1)/nrow(vt_2017_old), sum(vt_2019_old$etoh == 1)/nrow(vt_2019_old), sum(vt_2020_old$etoh == 1)/nrow(vt_2020_old))
+
+# combine vectors into df
+propetoh <- data.frame(yearList, etohyoung, etohold)
+
+# change the col names to be more informative
+names(propetoh) <- c("Year", "Younger", "Older")
+
+# create grouped bar plot, from https://stackoverflow.com/questions/72449952/making-a-grouped-bar-chart-in-r
+# getting the labels in the right position from https://stackoverflow.com/questions/37587288/ggplot-label-bars-in-grouped-bar-plot
+# info on changing legend title from here https://stackoverflow.com/questions/41649929/how-to-modify-a-legend-title-in-a-barplot-with-ggplot
+
+# ivtreasing line size from https://stackoverflow.com/questions/14794599/how-to-change-line-width-in-ggplot
+# line graph info from https://www.sthda.com/english/wiki/ggplot2-line-plot-quick-start-guide-r-software-and-data-visualization
+
+petohlong  <- propetoh |>
+  # Reshape data to long format
+  pivot_longer(Younger:Older)
+
+# create labels with the value of each proportion
+petohlong$labels <- round(petohlong$value, 2)
+
+petoh <-  ggplot(data = petohlong, aes(x = Year, y = value, fill = name, group=name, color=factor(name))) +
+  # Implement a grouped bar chart
+  # Implement a line graph
+  geom_line(stat = "identity", size = 1) + geom_point(size = 2) + theme_light() + ggtitle("Proportion of alcohol in opioid-detected overdose deaths \n in VT by age group, 2009-2023") + ylab("Proportion") + theme(plot.title = element_text(hjust = 0.5)) + scale_fill_discrete(guide="none") + scale_x_continuous(breaks=propetoh$Year) + xlab("Year")+ coord_cartesian(ylim = c(0, 1)) + guides(color = guide_legend(title = "Age group"))+ geom_label_repel(aes(label = labels, x = Year, y = value), nudge_x = 0.05, na.rm = FALSE, color = "black", size = 2.5, label.size = NA, fill = NA)
+
+petoh
+
+
+ggsave(plot=petoh, filename = "images/vt/prop_etoh.png", width = 10, height = 8)
+```
+
+### Significance testing for the number of alcohol-detected deaths
+
+```{r chiSquaredEtoh, echo=FALSE, message=FALSE, warning=FALSE}
+# get frequevty of each race for old and young, from https://stackoverflow.com/questions/48562288/frequevty-of-each-unique-combination-in-data-frame
+
+# get proportion of etoh for each year for younger people -- from https://stackoverflow.com/questions/28195996/count-number-of-rows-matching-a-criteria
+etohyoungcount <- c(sum(vt_2009_young$etoh == 1), sum(vt_2010_young$etoh == 1), sum(vt_2012_young$etoh == 1), sum(vt_2013_young$etoh == 1), sum(vt_2014_young$etoh == 1), sum(vt_2015_young$etoh == 1), sum(vt_2017_young$etoh == 1), sum(vt_2019_young$etoh == 1), sum(vt_2020_young$etoh == 1))
+
+# get proportion for older people
+etoholdcount <- c(sum(vt_2009_old$etoh == 1), sum(vt_2010_old$etoh == 1), sum(vt_2012_old$etoh == 1), sum(vt_2013_old$etoh == 1), sum(vt_2014_old$etoh == 1), sum(vt_2015_old$etoh == 1), sum(vt_2017_old$etoh == 1), sum(vt_2019_old$etoh == 1), sum(vt_2020_old$etoh == 1))
+
+# combine vectors into df
+etohcount <- data.frame(yearList, etohyoungcount, etoholdcount)
+
+# change the col names to be more informative
+names(etohcount) <- c("Year", "Younger", "Older")
+
+# convert the "race_sex" column into row names so I get a table with only numeric values, from https://stackoverflow.com/questions/5555408/convert-the-values-in-a-column-into-row-names-in-an-existing-data-frame
+
+etohchi <- etohcount[,-1]
+rownames(etohchi) <- etohcount[,1]
+
+as.matrix(etohchi)
+
+# looks like I can just use any matrix for chisq.test, from https://researchguides.library.vanderbilt.edu/c.php?g=156859&p=3058795
+
+# looks like I can just use any matrix for chisq.test, from https://researchguides.library.vanderbilt.edu/c.php?g=156859&p=3058795
+  # I'm using Fisher's exact test if >20% of cell counts are <5, if not use chi squared
+  # I get >20% <5 from https://www.ccjm.org/content/84/9_suppl_2/e20
+  pvalue <- ifelse(sum(etohchi < 5)/(ncol(etohchi) * nrow(etohchi)) > 0.2, fisher.test(as.matrix(etohchi), workspace=2e6)$p.value, chisq.test(as.matrix(etohchi))$p.value)
+  
+  pvalue
+```
+
+### Proportion of deaths involving buprenorphine/methadone
+
+
+```{r propBupeMethadone, echo=FALSE, message=FALSE, warning=FALSE}
+
+# unfortunately there are different variable names for each vt file so a for loop won't work :/
+
+# get proportion of cocaine for each year for younger people -- from https://stackoverflow.com/questions/28195996/count-number-of-rows-matching-a-criteria
+methbupeyoung <- c(sum(sum(vt_2009_young$bupe == 1), sum(vt_2009_young$methadone == 1))/nrow(vt_2009_young), sum(sum(vt_2010_young$bupe == 1), sum(vt_2010_young$methadone == 1))/nrow(vt_2010_young), sum(sum(vt_2012_young$bupe == 1), sum(vt_2012_young$methadone == 1))/nrow(vt_2012_young), sum(sum(vt_2013_young$bupe == 1), sum(vt_2013_young$methadone == 1))/nrow(vt_2013_young), sum(sum(vt_2014_young$bupe == 1), sum(vt_2014_young$methadone == 1))/nrow(vt_2014_young), sum(sum(vt_2015_young$bupe == 1), sum(vt_2015_young$methadone == 1))/nrow(vt_2015_young), sum(sum(vt_2017_young$bupe == 1), sum(vt_2017_young$methadone == 1))/nrow(vt_2017_young), sum(sum(vt_2019_young$bupe == 1), sum(vt_2019_young$methadone == 1))/nrow(vt_2019_young), sum(sum(vt_2020_young$bupe == 1), sum(vt_2020_young$methadone == 1))/nrow(vt_2020_young))
+
+# get proportion for older people
+methbupeold <- c(sum(sum(vt_2009_old$bupe == 1), sum(vt_2009_old$methadone == 1))/nrow(vt_2009_old), sum(sum(vt_2010_old$bupe == 1), sum(vt_2010_old$methadone == 1))/nrow(vt_2010_old), sum(sum(vt_2012_old$bupe == 1), sum(vt_2012_old$methadone == 1))/nrow(vt_2012_old), sum(sum(vt_2013_old$bupe == 1), sum(vt_2013_old$methadone == 1))/nrow(vt_2013_old), sum(sum(vt_2014_old$bupe == 1), sum(vt_2014_old$methadone == 1))/nrow(vt_2014_old), sum(sum(vt_2015_old$bupe == 1), sum(vt_2015_old$methadone == 1))/nrow(vt_2015_old), sum(sum(vt_2017_old$bupe == 1), sum(vt_2017_old$methadone == 1))/nrow(vt_2017_old), sum(sum(vt_2019_old$bupe == 1), sum(vt_2019_old$methadone == 1))/nrow(vt_2019_old), sum(sum(vt_2020_old$bupe == 1), sum(vt_2020_old$methadone == 1))/nrow(vt_2020_old))
+
+# combine vectors into df
+propmethbupe <- data.frame(yearList, methbupeyoung, methbupeold)
+
+# change the col names to be more informative
+names(propmethbupe) <- c("Year", "Younger", "Older")
+
+# create grouped bar plot, from https://stackoverflow.com/questions/72449952/making-a-grouped-bar-chart-in-r
+# getting the labels in the right position from https://stackoverflow.com/questions/37587288/ggplot-label-bars-in-grouped-bar-plot
+# info on changing legend title from here https://stackoverflow.com/questions/41649929/how-to-modify-a-legend-title-in-a-barplot-with-ggplot
+
+# ivtreasing line size from https://stackoverflow.com/questions/14794599/how-to-change-line-width-in-ggplot
+# line graph info from https://www.sthda.com/english/wiki/ggplot2-line-plot-quick-start-guide-r-software-and-data-visualization
+
+
+pmethbupelong  <- propmethbupe |>
+  # Reshape data to long format
+  pivot_longer(Younger:Older)
+
+# create labels with the value of each proportion
+pmethbupelong$labels <- round(pmethbupelong$value, 2)
+
+pmethbupe <-  ggplot(data = pmethbupelong, aes(x = Year, y = value, fill = name, group=name, color=factor(name))) +
+  # Implement a grouped bar chart
+  # Implement a line graph
+  geom_line(stat = "identity", size = 1) + geom_point(size = 2) + theme_light() + ggtitle("Proportion of methadone/buprenorphine-detected \n deaths in VT by age group, 2009-2023") + ylab("Proportion") + theme(plot.title = element_text(hjust = 0.5)) + scale_fill_discrete(guide="none") + scale_x_continuous(breaks=propmethbupe$Year) + xlab("Year")+ coord_cartesian(ylim = c(0, 1)) + guides(color = guide_legend(title = "Age group"))+ geom_label_repel(aes(label = labels, x = Year, y = value), nudge_x = 0.1, na.rm = FALSE, color = "black", size = 2.5, label.size = NA, fill = NA)
+
+pmethbupe
+
+ggsave(plot=pmethbupe, filename = "images/vt/prop_meth_bupe.png", width = 10, height = 8)
+
+```
+
+### Significance testing for the number of buprenorphine/methadone-detected deaths
+
+
+```{r chiSquaredMethBupe, echo=FALSE, message=FALSE, warning=FALSE}
+# get frequevty of each race for old and young, from https://stackoverflow.com/questions/48562288/frequevty-of-each-unique-combination-in-data-frame
+
+# get proportion of cocaine for each year for younger people -- from https://stackoverflow.com/questions/28195996/count-number-of-rows-matching-a-criteria
+methbupeyoungcount <- c(sum(sum(vt_2009_young$buprenorphine == 1), sum(vt_2009_young$methadone == 1)), sum(sum(vt_2010_young$buprenorphine == 1), sum(vt_2010_young$methadone == 1)), sum(sum(vt_2012_young$buprenorphine == 1), sum(vt_2012_young$methadone == 1)), sum(sum(vt_2013_young$buprenorphine == 1), sum(vt_2013_young$methadone == 1)), sum(sum(vt_2014_young$buprenorphine == 1), sum(vt_2014_young$methadone == 1)), sum(sum(vt_2015_young$buprenorphine == 1), sum(vt_2015_young$methadone == 1)), sum(sum(vt_2017_young$buprenorphine == 1), sum(vt_2017_young$methadone == 1)), sum(sum(vt_2019_young$buprenorphine == 1), sum(vt_2019_young$methadone == 1)), sum(sum(vt_2020_young$buprenorphine == 1), sum(vt_2020_young$methadone == 1)))
+
+# get proportion for older people
+methbupeoldcount <-  c(sum(sum(vt_2009_old$buprenorphine == 1), sum(vt_2009_old$methadone == 1)), sum(sum(vt_2010_old$buprenorphine == 1), sum(vt_2010_old$methadone == 1)), sum(sum(vt_2012_old$buprenorphine == 1), sum(vt_2012_old$methadone == 1)), sum(sum(vt_2013_old$buprenorphine == 1), sum(vt_2013_old$methadone == 1)), sum(sum(vt_2014_old$buprenorphine == 1), sum(vt_2014_old$methadone == 1)), sum(sum(vt_2015_old$buprenorphine == 1), sum(vt_2015_old$methadone == 1)), sum(sum(vt_2017_old$buprenorphine == 1), sum(vt_2017_old$methadone == 1)), sum(sum(vt_2019_old$buprenorphine == 1), sum(vt_2019_old$methadone == 1)), sum(sum(vt_2020_old$buprenorphine == 1), sum(vt_2020_old$methadone == 1)))
+
+
+# combine vectors into df
+methbupecount <- data.frame(yearList, methbupeyoungcount, methbupeoldcount)
+
+# change the col names to be more informative
+names(methbupecount) <- c("Year", "Younger", "Older")
+
+# convert the "race_sex" column into row names so I get a table with only numeric values, from https://stackoverflow.com/questions/5555408/convert-the-values-in-a-column-into-row-names-in-an-existing-data-frame
+
+methbupechi <- methbupecount[,-1]
+rownames(methbupechi) <- methbupecount[,1]
+
+as.matrix(methbupechi)
+
+# looks like I can just use any matrix for chisq.test, from https://researchguides.library.vanderbilt.edu/c.php?g=156859&p=3058795
+
+# looks like I can just use any matrix for chisq.test, from https://researchguides.library.vanderbilt.edu/c.php?g=156859&p=3058795
+  # I'm using Fisher's exact test if >20% of cell counts are <5, if not use chi squared
+  # I get >20% <5 from https://www.ccjm.org/content/84/9_suppl_2/e20
+
+# I KEPT RUNNING INTO AN ISSUE WITH WORKSPACE SIZE [NEVER BIG ENOUGH] SO I SET SIMULATE P VALUE TO BE TRUE
+  pvalue <- ifelse(sum(methbupechi < 5)/(ncol(methbupechi) * nrow(methbupechi)) > 0.2, fisher.test(as.matrix(methbupechi), workspace=2e6)$p.value, chisq.test(as.matrix(methbupechi))$p.value)
+  
+  pvalue
+```

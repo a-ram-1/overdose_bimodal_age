@@ -1,0 +1,261 @@
+---
+title: "Fatal OD age analysis explanation"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    toc_collapsed: true
+    toc_depth: 5
+    theme: lumen
+---
+
+This is a brief explanation of all the analysis I have done to take a look at the fatal overdose decedent age distribution, so far for CT and MA from 2009-2023. 
+
+### Packages I use
+
+* ggplot2
+* stringr
+* dplyr
+* lubridate
+* patchwork
+* tidyverse
+* sf [you might be able to do without]
+* multimode
+* diptest
+
+### Age distribution and mode calculation
+
+In the data I use, each decedent has an associated integer age. I use this to plot a histogram of the ages year by year, identify the modes for each year and determine if the multimodality is significant based on Hartigan's dip test [which is why I use the $\texttt{diptest}$ package]. I use a Gaussian kernel density estimate to approximate the PDF. I'll be honest that I took a lot of this method from a [stackoverflow answer](https://stackoverflow.com/questions/27418461/calculate-the-modes-in-a-multimodal-distribution-in-r) [it is the last answer in the page], but it works pretty well. Since this portion is crucial to set up the rest of the analysis [for other parts it matters a little less how you do it methodologically as long as the end result is the same], I'll walk through my code: 
+
+* First we want to find the width of each kernel. This approach uses Silverman's rule of thumb because it works pretty well in most cases. I am of course open to using other approaches like cross validation which are maybe better suited to data like this and would consider doing so if I needed to do any robustness checks, but for now this seems sufficient. 
+  * I will first get rid of any NAs, if applicable. 
+
+$$ \texttt{ bandwidth <- bw.nrd0(na.omit(mass_2009\$age))}$$ 
+
+* I then calculate the number of modes in the age field of my data. For me this is a column called "age". I split the data up year by year and you will have to do the same for the rest of this analysis to work. Calculating the modes is easy [I know the variable name is bad, but it's a dummy variable and I'm just repurposing code from the stack overflow answer anyway]. The first argument is your age field and the second is your bandwidth variable: 
+
+$$ \texttt{n <- nmodes(mass_2009\$age, bw = bandwidth})$$
+
+* The next thing to do is calculate the location of these modes [since right now you only have the number of modes]. I"m not really sure why I need to split up the mode finding into two different steps but that's how this package's functions are written sadly. The arguments are the age variable and the number of modes you want to find the location for [which we calculated in the last step, so you're just feeding that variable in here]. The $\texttt{display=TRUE}$ argument just lets you see the kernel density estimate plot. It's not crucial but I find this very useful since sometimes this approach will detect a "mode" because someone very young or very old died and there's no one with an age close to theirs. I use the KDE plot in combination with the histogram to help identify these cases and ignore them. 
+
+$$ \texttt{loc <- locmodes(mass_2009\$age, mod0 = n, display=TRUE)}$$
+
+* I then create two vectors, one for modes and one for antimodes. The $\texttt{locmodes}$ function for some reason spits out a vector where the odd values are modes and the even ones are antimodes. As a result I separate out the mode and antimodes into two vectors as I will need them both. 
+
+$$ \texttt{modes <- loc\$locations[seq(from = 1, by = 2, length.out = n)]}$$
+$$ \texttt{antimodes <- loc\$locations[seq(from = 0, by = 2, length.out = n)]}$$
+
+* The next thing I'm going to do is bifurcate the distributions [if possible] into an "older" and "younger" population. For CT this is easy as all years exhibit bimodality so everything <= the first informative antimode is "younger" and everything greater is "older". I say first *informative* antimode because sometimes a single 15 year old child dying, for example, creates a mode at age 15 if there's no decedent close to that single child's age for that year. So honestly for this you have to look at the kernel density estimate plot and identify the first antimode that appears to actually bifurcate the population. Sometimes the first two modes will be clustered really close to each other so I will choose the antimode that best bifurcates the distribution. If it's a multimodal distribution with the different modes spaced out, I just choose the first antimode [not ideal but I don't know a better approach in that situation at the moment -- it's not really a scenario I've run into more than once or twice]. It's not as exact a process as maybe I'd want it but it's the best I can do at the moment. Of course if the distribution is unimodal you will not be able to complete this step -- again you can determine that by looking at the KDE plot. In the below code you would use whatever your dataframe for a given year is called and choose whichever antimode is most appropriate [it will be the same value for both lines of code]   
+
+$$ \texttt{mass_2009_young <- subset(mass_2009, age <= antimodes[1])} $$
+$$ \texttt{mass_2009_old <- subset(mass_2009, age > antimodes[1])} $$
+
+
+For the rest of the analysis I really only work with the "older" and "younger" dataframes as opposed to all the data from a given year. Here is some information on the two plots I produce just using the age histograms: 
+
+1. I create a histogram [no bins, one bar per age] with the number of people of each age written above the corresponding bar. I use $\texttt{as.character(age)}$ here because it causes issues if I just write "age"
+
+ 
+$$\texttt{ggplot(data=mass_2009, aes(x=age, ..count..)) + geom_bar(aes(fill = as.character(age)), position = "dodge") +}$$
+$$\texttt{scale_x_continuous(guide = guide_axis(angle = 90), breaks = mass_2009\$age, labels = mass_2009\$age) + }$$
+$$\texttt{geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black", size = 7/.pt) + theme_light() +}$$
+$$\texttt{ggtitle("Age distribution for 2009 MA opioid-detected deaths")+theme(plot.title = element_text(hjust = 0.5),}$$
+$$\texttt{legend.position="none", axis.text.x = element_text(size = 7))}$$
+
+2. I also create another histogram, this time just with black lines designating the modes. I do not include lines for modes that are uninformative [caused by a single individual with an outlier age]. The line $\texttt{geom_vline(xintercept = modes, size=1)}$ takes care of this for me -- recall that "modes" is a vector of all modes in the distribution. I subset this as needed to only focus on the modes that are uninformative. 
+
+$$\texttt{age_2009 <- ggplot(data=mass_2009, aes(x=age, ..count..)) + geom_bar(aes(fill = as.character(age)), position = "dodge") +}$$
+$$\texttt{scale_x_continuous(guide = guide_axis(angle = 90), breaks = mass_2009\$age, labels = mass_2009\$age) + theme_light() +}$$
+$$\texttt{geom_vline(xintercept = modes, size=1) + ggtitle("Age distribution for 2009 MA opioid-detected deaths")+}$$
+$$\texttt{theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 7))}$$
+
+Lastly, I also run Hartigan's dip test. This is super easy with the $\texttt{diptest}$ package. There's no need to write this whole sentence out, but I just do it since I usually put all the main analysis in an rmd file and this makes it more readable. The $\texttt{dip.test()}$ function does produce a bunch of output which is why you want to only get the p value from it. 
+
+
+$$\texttt{sprintf("Using Hartigan's dip test for bimodality, the resulting p value is %f.", dip.test(mass_2009\$age)\$p.value)}$$ 
+
+I perform this analysis for each year of interest [for me it's 2009-2023]. It's easiest if you preprocess the data beforehand to ensure that everything's identically formatted if it isn't already, so the code is really quick to duplicate/slightly modify and run. When I encounter situations where variables change year by year, I just do the best I can to ensure that the variables used year by year are as similar as possible if there's no way for them to be identical, and I just make a note of the differences. 
+
+### Median age and proportion of older decedents
+
+The first analysis I perform is to just grab the median age of all decedents, the younger subpopulation and the older subpopulation for each year of analysis. I just use the $\texttt{median()}$ function for the age field in my data. 
+
+I then grab the proportion of older decedents for each year. Specifically, I write out the following statement for each year "The proportion of older decedents in 2014 was \_\_, with \_\_ out of \_\_ deaths." This is really easy using the $\texttt{sprintf}$ command: 
+
+$$\texttt{sprintf("The proportion of older decedents in 2009 was %f, with %d out of %d deaths.", nrow(mass_2009_old)/nrow(mass_2009), nrow(mass_2009_old), nrow(mass_2009)}$$
+
+The %f indicates a proportion whereas %d indicates an integer value. 
+
+### Race distribution in older/younger decedents
+
+The first more substantive analysis I perform after isolating the older/younger subpopulations [if possible] is to profile the race distribution of the two groups. CT uses an extremely simplified racial categorization approach: white/Black/Latine/other/unknown. I know some state datasets will put in multiple racial/ethnic identifiers like white Latine. The approach I have taken to that is to say that if someone is listed as Hispanic/Latine, whether it's "white Hispanic", "Black Hispanic" etc, just list them all as Hispanic/Latine. I know that this really removes a lot of the nuance present and am open to doing things another way, but the CT data has such a constrained racial categorization that there's already going to be a lot missing from the analysis [and I need to facilitate a comparison to CT data]. 
+
+I run this in two big for loops [one for all younger subpopulations, one for all the older subpopulations -- so one's got "young_2009" all the way to "young_2023" and the other one does the same with the older folks], at least for MA data which is well organized and pretty standardized, so there's less code to write and I can just iterate over each year. Given that my decedent races are collapsed into the above categories, I then create two histograms: one where the number of decedents per race is displayed above each bar, and another where the proportion of decedents per race is displayed above each bar. It's useful to see both. If you want to match my color palette you can use $\texttt{ "scale_fill_brewer(palette="Set2")}$. 
+
+### Chi squared testing for race
+
+Here's the way you want to format your table to feed into the chi squared function [this table covers results in a given year, these are real numbers for Massachusetts in 2018]: 
+
+| Race          | Young         | Old   |
+| :------------- |---------------:| -----: |
+| Black          | 13 | 13 |
+| Hispanic/Latine| 79 | 31 |
+| Other         | 16  | 4 |
+| White         | 500  | 265 |
+
+Obviously the rows can be in whatever order. I do the following to aggregate by race: $\texttt{mass_2018_young %>% group_by(Race) %>% tally()}$, so I use the "young" and "old" dataframes for each year to perform the aggregation. I merge everything to create the table above and rename the "n" columns to be something informative. 
+
+The "race" column helps me see what's going on and debug if needed but can't be fed into the chi squared function. As a result I create a copy of this table without that column and turn the "race" column values into row names. As follows: 
+
+$$\texttt{racemat2018 <- racetable2018[,-1] # racetable is the young-old table as seen above }$$
+$$\texttt{rownames(racemat2018) <- racetable2018[,1]}$$
+Of course you can skip this whole step and just combine the old and young vectors, nothing more, but I find it useful to compare a table showing the number of old and young people for each category with the final chi squared results. 
+
+The chi squared function takes a matrix as input, so use $\texttt{as.matrix(racemat2018)}$ in order to get it in the right format. So all in all, you have $\texttt{chisq.test(as.matrix(racemat2018))}$. 
+
+### Sex distribution in older/younger decedents
+
+This is pretty similar to the race analysis -- you want to have the sex labeled as actual words [so "Male" instead of "M" or a number]. If there are any trans people listed [CT has "MtF" labels for example] I've just left them be instead of trying to lump them in with the generic male/female labels. It is useful to see that they are dying, even if they are consistently undercounted in this sort of data. I also intentionally list this as an analysis of sex because we can't always ascertain a decedent's gender. Putting a "MtF" label is also tricky because it relates to gender as opposed to sex assigned at birth [since the determination is based on a visual examination and what they're terming "obvious signs", like person with penis and bra, estradiol on scene etc], but the semantic difficulties are outweighed by the value of seeing that there are trans people dying. 
+
+I create two histograms, one set for young and one set for old: one where the number of decedents per sex is displayed above each bar, and another where the proportion of decedents per sex is displayed above each bar. Just use the same code as the race analysis and change the variable names.  
+
+### Chi squared testing for sex
+
+This is the same as chi squared testing for race. Here's the type of table you want to start with [real data from CT in 2018], obviously you can have fewer rows than this depending on your data: 
+
+| Sex          | Young         | Old   |
+| :------------- |---------------:| -----: |
+| Female |  133   |   84   |
+| Male   |  457   |   255   |
+
+Use the same code as you did for the other analyses, just change the variables. 
+
+### Race and sex of decedents
+
+When you are preprocessing your data, you probably are working with a separate race and sex column. We can perform a simple string concatenation to create a race-sex field. All you have to do is something like this: $\texttt{mass_2022\$Race_sex <- paste(mass_2022\$Race, mass_2022\$Sex_revised, sep = " ")}$
+
+From here we can create the same histograms, one set for young and one set for old: one where the number of decedents per race-sex is displayed above each bar, and another where the proportion of decedents per race-sex is displayed above each bar. Just use the same code as the previous analyses and change the variable names.
+
+### Chi squared testing for race and sex
+
+Same approach as before, here's your table [data from MA in 2018]: 
+
+| Race_sex          | Young         | Old   |
+| :------------- |---------------:| -----: |
+| Black Male          | 10 | 9 |
+| Black Female | 3 | 4 |
+| Hispanic Male | 60 | 27 |
+| Hispanic Female| 19 | 4 |
+| Other Male | 13 | 4 |
+| Other Female| 0 | 0 |
+| White Male | 357 | 192 |
+| White Female | 143 | 73 |
+
+
+### Day of week
+
+This will require some preprocessing most likely. What you want to do is convert the date of death into a "date" type and then use the $\texttt{lubridate}$ package to pull out the day of week from it. 
+
+To convert the date into a "date" type, I just did $\texttt{mass_2022\$DOD = as.Date(mass_2022\$DOD, "%m/%d/%Y")}$, because my data was already formatted in month/day/year. Obviously if your data is not you will want to change that. The month/day/year ordering doesn't actually matter as long as you tell R what format the date is in. Your data does have to have the month/day/year separated by some character like /. 
+
+Once you've done that and have $\texttt{lubridate}$ loaded up, you can simply do $\texttt{mass_2022\$Weekday <- weekdays(mass_2022\$DOD)}$. From here we'll make a bar plot. Again you want two plots, one set for young and one set for old: one where the number of decedents per day of week is displayed above each bar, and another where the proportion of decedents per day of week is displayed above each bar. Just use the same code as the race analysis and change the variable names.
+
+The only thing you need to watch out for is the fact that R tends to put the days in random order on the plot. You can force an ordering by doing the following [where "Weekday" is the column containing the days of the week]: 
+$$\texttt{ggplot(data=mass_2018_young, aes(x=factor(Weekday, level=c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")), ..count..))}$$ 
+
+### Chi squared testing for day of week
+
+Same approach as before, here's your table [data from MA in 2018, order of rows doesn't matter]: 
+
+| Weekday          | Young         | Old   |
+| :------------- |---------------:| -----: |
+| Monday      | 80 | 59 |
+| Tuesday | 73 | 41 |
+| Wednesday| 86 | 44 |
+| Thursday | 96 | 38 |
+| Friday | 92 | 50 |
+| Saturday | 104 | 52 |
+| Sunday | 77 | 29 |
+
+### Month
+
+You should perform the preprocessing for this the same time you do it for day of week. Now, this time instead of $\texttt{mass_2022\$Weekday <- weekdays(mass_2022\$DOD)}$, you'll do $\texttt{mass_2022\$Month <- month(mass_2022\$DOD)}$ [after converting date of death to a "date" data type]. This spits out a numerical month value. I don't change it into words so it displays on the x axis in order, but if you want to use words do you'll need to use $\texttt{aes(x = factor(Month, level = c("January", ..., "December")), ..count..)}$ in order to force an ordering. Again you want two plots, one set for young and one set for old: one where the number of decedents per month is displayed above each bar, and another where the proportion of decedents per month is displayed above each bar. Same code. 
+
+
+### Chi squared testing for month
+
+Same approach as before, here's your table [data from MA in 2018, order or label of rows doesn't matter]: 
+
+| Weekday          | Young         | Old   |
+| :------------- |---------------:| -----: |
+| 1      | 79 | 32 |
+| 2 | 48 | 27 |
+| 3| 52 | 25 |
+| 4 | 53 | 18 |
+| 5 | 53 | 35 |
+| 6 | 35 | 33 |
+| 7 | 48 | 19 |
+| 8| 56 | 28 |
+| 9 | 47 | 19 |
+| 10 | 37 | 23 |
+| 11 | 46 | 26 |
+| 12 | 12 | 54 |
+
+### Tox analysis
+
+This is a little different. I usually go substance by substance on this one and I am specifically looking for the proportion of deaths where a certain substance is detected in tox. I look specifically at fentanyl, cocaine, gabapentin, buprenorphine/methadone [combined into one plot since they serve a similar function and didn't have many associated deaths on their own], alcohol and xylazine. All years are combined into one plot. I'll go through my code so it makes sense. The way my data is structured, each substance has its own field and there's a 1 in each row if it's detected for a given person and 0 otherwise. 
+
+* I first make sure that I have a vector for all years I want to include. You may already have this, in which case ignore this step. I write mine out as follows: 
+
+$$\texttt{year <- c(2018, 2019, 2020, 2021, 2022, 2023)}$$
+
+* I then create two vectors, one with the proportion of younger people with fentanyl detection [or whatever substance] year by year, and one with older. There is probably a smarter way to do this, but this was quick and works for me. They're formatted identically so we'll just look at the younger people [the variable names change year by year for this dataset, I didn't preprocess to get rid of that but I could've]: 
+
+$$\texttt{fentyoung <- c(sum(ocme_2018_young\$fent.or.frankens == 1)/nrow(ocme_2018_young),}$$
+$$\texttt{sum(ocme_2019_young\$fent...frankens== 1)/nrow(ocme_2019_young), sum(ocme_2020_young\$fent...frankens == 1)/nrow(ocme_2020_young),}$$
+$$\texttt{sum(ocme_2021_young\$fent...frankens == 1)/nrow(ocme_2021_young), sum(ocme_2022_young\$fent...frankens ==1)/nrow(ocme_2022_young),}$$
+$$\texttt{sum(ocme_2023_young\$fent...frankens ==1)/nrow(ocme_2023_young))}$$
+
+* I then combine both vectors into a dataframe [change column names as needed]: $\texttt{propfent <- data.frame(year, fentyoung, fentold)}$
+
+* Then, we plot. I got half this answer from stackoverflow so I don't know exactly why I need to make some of the formatting changes, but this is what I have to do to make it work. 
+
+$$\texttt{propfent |>}$$
+  
+I have to reshape the data to the "long" format for it to work in this plot [note: Younger and Older are the two column names of propfent denoting the younger and older proportions for all years considered]: 
+
+  $$\texttt{pivot_longer(Younger:Older) |> }$$
+Initiate the plot [the only variable to change is "x"]
+  $$\texttt{ggplot(aes(x = Year, y = value, fill = name)) +}$$
+Here's where you'll implement the grouped bar chart -- $\texttt{position_dodge}$ is what lets us group old and young for a given year, I wouldn't mess with that. 
+  $$\texttt{geom_bar(stat = "identity", position = position_dodge(width= 1)) +}$$ 
+I add labels above each bar with the corresponding proportions -- I round them to 2 digits [you can change that]. $\texttt{vjust}$ just indicates the vertical spacing relative to the top of the bar. I've found that this spacing and a font size of 9 work pretty well, but change as needed. 
+
+$$\texttt{geom_text(aes(label = round(value, 2)), stat = "identity", vjust = -0.1, colour = "black", size = 9/.pt, position = position_dodge(width= 1)) +}$$ 
+
+$\texttt{theme_light()}$ is just a personal preference -- it gives me a white background which is better for visualization. I rename the y axis to "Proportion". 
+
+$$\texttt{theme_light() + ggtitle("Proportion of fentanyl-involved deaths by age group, 2018-2023") + ylab("Proportion") +}$$ 
+I use $\texttt{hjust}$ here to center the title. $\texttt{scale_fill_discrete}$ lets us set the title for the legend. 
+$$\texttt{theme(plot.title = element_text(hjust = 0.5)) + scale_fill_discrete(name = "Age group") +}$$
+
+This just lets us list each year analyzed on the x axis. 
+$$\texttt{scale_x_continuous(breaks=propfent\$Year)}$$
+
+### Chi squared testing for tox
+
+You need to do this substance by substance. The process is actually the same as the other chi squared testing approaches. The only thing that's different is how you get your initial dataframe, since you'll have to aggregate differently. For this you should actually reuse code from the tox plot you just generated for that substance. Here's what I mean: 
+
+I start off by creating a vector that gives me the number of younger decedents with fent detection for the years of interest, 2018-2023:
+
+$$\texttt{fentyoungcount <- c(sum(ocme_2018_young\$fent.or.frankens == 1), sum(ocme_2019_young\$fent...frankens == 1), sum(ocme_2020_young\$fent...frankens == 1), sum(ocme_2021_young\$fent...frankens == 1), sum(ocme_2022_young\$fent...frankens == 1), sum(ocme_2023_young\$fent...frankens ==1))}$$
+
+I do the same for old. I then combine them into a dataframe: 
+
+$$\texttt{fentcount <- data.frame(year, fentyoungcount, fentoldcount)}$$
+
+Then you'll use the same code as other chi squared tests. Get rid of the first column and turn it into row labels, convert the table into a matrix and run $\texttt{chisq.test(as.matrix(your matrix))}$. 
+
+### Future analyses
+
+I am still working on a neighborhood disadvantage analysis. More soon!

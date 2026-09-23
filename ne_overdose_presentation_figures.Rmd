@@ -1,0 +1,371 @@
+---
+title: "NE overdose prevention figures"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r importData, echo=FALSE, message=FALSE, warning=FALSE}
+library(ggplot2)
+library(stringr)
+library(dplyr)
+library(lubridate)
+library(patchwork)
+library(sf)
+library(tidyverse)
+library(tigris)
+library(usmap)
+library(pheatmap)
+library(RColorBrewer) # for plot colors
+library(ggrepel)
+library(ggpubr)
+library(grid)
+
+```
+
+```{r medianAges, echo=FALSE, message=FALSE, warning=FALSE}
+
+youngermat <- data.frame(State = c("CT", "MA", "NH", "VT", "NC"), Year_2009 = c(27, 27, 26, 31, NA), Year_2010 = c(25, 29, 27, NA, NA), Year_2011 = c(28, 28, 26, NA, 26), Year_2012 = c(30, 30, NA, 28, 29), Year_2013 = c(28, 30, 28, 34, NA), Year_2014 = c(29, 30, 30, 30, 29), Year_2015 = c(31, NA, 32, 31, 28), Year_2016 = c(30, NA, NA, NA, 32), Year_2017 = c(33, 32, 30, 33, NA), Year_2018 = c(35, 33, NA, NA, NA), Year_2019 = c(35, 33, NA, 33, NA), Year_2020 = c(34, 35, 34, 33, NA), Year_2021 = c(36, 36, 34, NA, NA), Year_2022 = c(36, 36, 35, NA, 30), Year_2023 = c(38, 37, 37, NA, NA))
+
+antimodemat <- data.frame(State = c("CT", "MA", "NH", "VT", "NC"), Year_2009 = c(32, 35, 36, 42, NA), Year_2010 = c(32, 35, 33, NA, NA), Year_2011 = c(38, 35, 33, NA, 33), Year_2012 = c(40, 37, NA, 35, 36), Year_2013 = c(37, 37, 36, 45, NA), Year_2014 = c(38, 43, 41, 42, 37), Year_2015 = c(42, NA, 46, 41, 35), Year_2016 = c(37, NA, NA, NA, 44), Year_2017 = c(43, 43, 40, 45, NA), Year_2018 = c(47, 45, NA, NA, NA), Year_2019 = c(46, 45, NA, 45, NA), Year_2020 = c(45, 46, 43, 42, NA), Year_2021 = c(45, 47, 47, NA, NA), Year_2022 = c(46, 47, 45, NA, 36), Year_2023 = c(48, 48, 47, NA, NA))
+
+
+oldermat <- data.frame(State = c("CT", "MA", "NH", "VT", "NC"), Year_2009 = c(45, 47, 48, 53, NA), Year_2010 = c(46, 47, 48, NA, NA), Year_2011 = c(49, 47, 48, NA, 47), Year_2012 = c(50, 48, NA, 47, 48), Year_2013 = c(49, 48, 48, 53, NA), Year_2014 = c(49, 49, 51, 52, 49), Year_2015 = c(53, NA, 52, 51, 48), Year_2016 = c(50, NA, NA, NA, 53), Year_2017 = c(53, 52, 49, 54, NA), Year_2018 = c(55, 54, NA, NA, NA), Year_2019 = c(55, 54, NA, 53, NA), Year_2020 = c(56, 55, 51, 51, NA), Year_2021 = c(56, 56, 55, NA, NA), Year_2022 = c(57, 57, 55, NA, 48), Year_2023 = c(59, 57, 55, NA, NA))
+
+# create data frames for each state
+
+# remove non-text columns 
+youngmat <- youngermat[,-1]
+rownames(youngmat) <- youngermat[,1]
+
+antimodemat <- antimodemat[,-1]
+#rownames(antimodemat) <- antimodemat[,1]
+
+oldmat <- oldermat[,-1]
+rownames(oldmat) <- oldermat[,1]
+
+# convert to matrix
+
+youngmat <- as.matrix(youngmat)
+antimodemat <- as.matrix(antimodemat)
+oldmat <- as.matrix(oldmat)
+
+# changed colors with this https://stackoverflow.com/questions/71298942/making-a-continuous-color-chart-for-heatmap-using-pheatmap
+
+pheatmap(youngmat, cluster_rows = FALSE, cluster_cols = FALSE, color = colorRampPalette(c("white", "darkslategray1", "darkslategray4"))(100), display_numbers=T, number_color="black", main="Median ages in younger populations across the northeast, 2009-2023", labels_col = c("2009", "2010", "2011", "2012", "2013", "2014", "2015", "2016", "2017", "2018", "2019", "2020", "2021", "2022", "2023"), fontsize_number = 10, angle_col=315)
+
+pheatmap(oldmat, cluster_rows = FALSE, cluster_cols = FALSE, color = colorRampPalette(c("white", "olivedrab1", "olivedrab4"))(100), display_numbers=T, number_color="black", main="Median ages in older populations across the northeast, 2009-2023", labels_col = c("2009", "2010", "2011", "2012", "2013", "2014", "2015", "2016", "2017", "2018", "2019", "2020", "2021", "2022", "2023"), fontsize_number = 10, angle_col=315)
+```
+
+```{r medianLineGraph, echo=FALSE, message=FALSE, warning=FALSE}
+
+#ctmat <- data.frame(Agegroup  = c("Younger", "Older"), Year_2009 = c(27, 45), Year_2010 = c(25, 46), Year_2011 = c(28, 49), Year_2012 = c(30, 50), Year_2013 = c(28, 49), Year_2014 = c(29, 49), Year_2015 = c(31, 53), Year_2016 = c(30, 50), Year_2017 = c(33, 53), Year_2018 = c(35, 55), Year_2019 = c(35, 55), Year_2020 = c(34, 56), Year_2021 = c(36, 56), Year_2022 = c(36, 57), Year_2023 = c(38, 59))
+
+
+# initialize empty df and add in the younger/older median ages
+ctmat <- data.frame(matrix(ncol = 3, nrow = 15))
+colnames(ctmat) <- c("Year", "Younger",  "Older")
+ctmat$Year <- c(2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023)
+ctmat$Younger <- c(27, 25, 28, 30, 28, 29, 31, 30, 33, 35, 35, 34, 36, 36, 38)
+ctmat$Antimode <- c(32, 32, 38, 40, 37, 38, 42, 37, 43, 47, 46, 45, 45, 46, 48)
+ctmat$Older <- c(45, 46, 49, 50, 49, 49, 53, 50, 53, 55, 55, 56, 56, 57, 59)
+
+# increasing line size from https://stackoverflow.com/questions/14794599/how-to-change-line-width-in-ggplot
+# line graph info from https://www.sthda.com/english/wiki/ggplot2-line-plot-quick-start-guide-r-software-and-data-visualization
+
+# using the transpose because I did the matrices the wrong way ... oh well
+
+ctlong <-  ctmat |>
+  # Reshape data to long format
+  pivot_longer(cols = c("Younger", "Antimode", "Older"))
+
+# create labels with the value of each median age
+# I'm doing the antimode labels separately because the long table doesn't let me add antimodes into "value" and I'm not sure that doing so would be helpful anyway
+ctlong$labels <- ctlong$value
+
+# to get the labels to show the respective colors: 
+# ggplot(data = masslong, aes(x = Year, y = value, fill = name, group=name, color=factor(name)) + geom_line(stat = "identity", size = 1) + geom_point()
+
+# these colors only work for the points for some reason
+ctlong$colors <- ifelse(ctlong$name == "Younger", "#00BFC4", ifelse(ctlong$name == "Older", "#F8766D", "gray"))
+# for some reason I need to do the line colors serially -- needs to be done in alphabetical order [antimode first]
+ctlinecolors <- rep(c("gray", "#F8766D", "#00BFC4"), each=nrow(ctlong)/3)
+
+pct <- ggplot(data = ctlong, aes(x = Year, y = value, fill = name, group=name, color=factor(name))) +
+  # Implement a line graph
+  geom_line(stat = "identity", size = 1, color = ctlinecolors) + geom_point(size = 2, color = ctlong$colors) + theme_light() + ggtitle("Median opioid-detected overdose decedent ages \n by age group in CT, 2009-2023") + ylab("Median age") + theme(plot.title = element_text(hjust = 0.5)) + scale_fill_discrete(guide="none") + scale_x_continuous(breaks=ctmat$Year) + xlab("Year") + guides(color = guide_legend(title = "Age group"))+ geom_text_repel(aes(label = labels, x = Year, y = value), nudge_x = 0.0, nudge_y = 0.1, na.rm = FALSE, color = "black", size = 3, label.size = NA, fill=NA)
+
+pct
+
+#pct <- ggplot(data = ctlong) +
+#  # Implement a line graph
+#  geom_line(aes(x = ctlong$Year, y = ctlong$Antimode, group = ctlong$Antimode), color="black", stat = "identity", size = 1) + #geom_point(aes(x = ctlong$Year, y = ctlong$Antimode), color="black", size = 2) + geom_label_repel(aes(label = #ctlong$antimodelabel, x = ctlong$Year, y = ctlong$Antimode), nudge_x = 0.1, na.rm = FALSE, color = "black", size = 3, label.size #= NA, fill = NA) 
+
+
+#massmat <- data.frame(Agegroup  = c("Younger", "Older"), Year_2009 = c(27, 47), Year_2010 = c(29, 47), Year_2011 = c(28, 47), Year_2012 = c(30, 48), Year_2013 = c(30, 48), Year_2014 = c(30, 49), Year_2015 = c(NA, NA), Year_2016 = c(NA, NA), Year_2017 = c(32, 52), Year_2018 = c(33, 54), Year_2019 = c(33, 54), Year_2020 = c(35, 55), Year_2021 = c(36, 56), Year_2022 = c(36, 57), Year_2023 = c(37, 57))
+
+# initialize empty df and add in the younger/older median ages
+massmat <- data.frame(matrix(ncol = 3, nrow = 15))
+colnames(massmat) <- c("Year", "Younger",  "Older")
+massmat$Year <- c(2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023)
+massmat$Younger <- c(27, 29, 28, 30, 30, 31, NA, NA, 32, 33, 33, 35, 36, 37, 37)
+massmat$Antimode <- c(35, 35, 35, 37, 37, 43, NA, NA, 43, 45, 45, 46, 47, 48, 48)
+massmat$Older <- c(47, 47, 47, 48, 48, 51, NA, NA, 52, 54, 54, 55, 55, 57, 57)
+
+# increasing line size from https://stackoverflow.com/questions/14794599/how-to-change-line-width-in-ggplot
+# line graph info from https://www.sthda.com/english/wiki/ggplot2-line-plot-quick-start-guide-r-software-and-data-visualization
+
+# using the transpose because I did the matrices the wrong way ... oh well
+
+masslong <-  massmat |>
+  # Reshape data to long format
+  pivot_longer(cols = c("Younger", "Antimode", "Older"))
+
+# create labels with the value of each median age
+masslong$labels <- masslong$value
+
+# these colors only work for the points for some reason
+masslong$colors <- ifelse(masslong$name == "Younger", "#00BFC4", ifelse(masslong$name == "Older", "#F8766D", "gray"))
+# for some reason I need to do the line colors serially -- needs to be done in alphabetical order [antimode first]
+masslinecolors <- rep(c("gray", "#F8766D", "#00BFC4"), each=nrow(masslong)/3)
+
+pma <- ggplot(data = masslong, aes(x = Year, y = value, fill = name, group=name, color=factor(name))) +
+  # Implement a line graph
+  geom_line(stat = "identity", size = 1, color = masslinecolors) + geom_point(size = 2, color = masslong$colors)+ theme_light() + ggtitle("Median opioid-detected overdose decedent ages \n by age group in MA, 2009-2023") + ylab("Median age") + theme(plot.title = element_text(hjust = 0.5)) + scale_fill_discrete(guide="none") + scale_x_continuous(breaks=massmat$Year) + xlab("Year") + guides(color = guide_legend(title = "Age group"))+ geom_text_repel(aes(label = labels, x = Year, y = value), nudge_y = 0.1, na.rm = FALSE, color = "black", size = 3, label.size = NA, fill=NA)
+
+pma
+
+#nhmat <- data.frame(Agegroup  = c("Younger", "Older"), Year_2009 = c(26, 48), Year_2010 = c(27, 48), Year_2011 = c(26, 48), Year_2012 = c(NA, NA), Year_2013 = c(28, 48), Year_2014 = c(30, 51), Year_2015 = c(32, 52), Year_2016 = c(NA, NA), Year_2017 = c(30, 49), Year_2018 = c(NA, NA), Year_2019 = c(NA, NA), Year_2020 = c(34, 51), Year_2021 = c(34, 55), Year_2022 = c(35, 55), Year_2023 = c(37, 55))
+
+# initialize empty df and add in the younger/older median ages
+nhmat <- data.frame(matrix(ncol = 3, nrow = 15))
+colnames(nhmat) <- c("Year", "Younger",  "Older")
+nhmat$Year <- c(2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023)
+nhmat$Younger <- c(26, NA, 26, NA, 26, 30, 32, NA, NA, 33, 33, 34, 34, 34, 37)
+nhmat$Antimode <- c(36, NA, 33, NA, 35, 41, 46, NA, NA, 44, 46, 43, 47, 45, 48)
+nhmat$Older <- c(48, NA, 48, NA, 49, 51, 52, NA, NA, 52, 54, 51, 55, 55, 55)
+
+# increasing line size from https://stackoverflow.com/questions/14794599/how-to-change-line-width-in-ggplot
+# line graph info from https://www.sthda.com/english/wiki/ggplot2-line-plot-quick-start-guide-r-software-and-data-visualization
+
+# using the transpose because I did the matrices the wrong way ... oh well
+
+nhlong <-  nhmat |>
+  # Reshape data to long format
+  pivot_longer(cols = c("Younger", "Antimode", "Older"))
+
+# create labels with the value of each median age
+nhlong$labels <- nhlong$value
+
+# these colors only work for the points for some reason
+nhlong$colors <- ifelse(nhlong$name == "Younger", "#00BFC4", ifelse(nhlong$name == "Older", "#F8766D", "gray"))
+# for some reason I need to do the line colors serially -- needs to be done in alphabetical order [antimode first]
+nhlinecolors <- rep(c("gray", "#F8766D", "#00BFC4"), each=nrow(nhlong)/3)
+
+pnh <- ggplot(data = nhlong, aes(x = Year, y = value, fill = name, group=name, color=factor(name))) +
+  # Implement a line graph
+  geom_line(stat = "identity", size = 1, color = nhlinecolors) + geom_point(size = 2, color = nhlong$colors) + theme_light() + ggtitle("Median opioid-detected overdose decedent ages \n by age group in NH, 2009-2023") + ylab("Median age") + theme(plot.title = element_text(hjust = 0.5)) + scale_fill_discrete(guide="none") + scale_x_continuous(breaks=nhmat$Year) + xlab("Year") + guides(color = guide_legend(title = "Age group"))+ geom_text_repel(aes(label = labels, x = Year, y = value), nudge_y = 0.1, na.rm = FALSE, color = "black", size = 3, label.size = NA, fill = NA)
+
+pnh
+
+#vtmat <- data.frame(Agegroup  = c("Younger", "Older"), Year_2009 = c(31, 52), Year_2010 = c(NA, NA), Year_2011 = c(NA, NA), Year_2012 = c(28, 47), Year_2013 = c(34, 53), Year_2014 = c(30, 52), Year_2015 = c(31, 51), Year_2016 = c(NA, NA), Year_2017 = c(33, 54), Year_2018 = c(NA, NA), Year_2019 = c(33, 53), Year_2020 = c(33, 51), Year_2021 = c(NA, NA), Year_2022 = c(NA, NA), Year_2023 = c(NA, NA))
+
+# initialize empty df and add in the younger/older median ages
+vtmat <- data.frame(matrix(ncol = 3, nrow = 15))
+colnames(vtmat) <- c("Year", "Younger",  "Older")
+vtmat$Year <- c(2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023)
+vtmat$Younger <- c(31, 30, NA, 28, 36, 29, 31, NA, 33, NA, 33, 32, NA, NA, NA)
+vtmat$Antimode <- c(42, 35, NA, 36, 46, 41, 41, NA, 45, NA, 44, 42, NA, NA, NA)
+vtmat$Older <- c(51, 50, NA, 47, 54, 52, 51, NA, 54, NA, 53, 51, NA, NA, NA)
+
+# increasing line size from https://stackoverflow.com/questions/14794599/how-to-change-line-width-in-ggplot
+# line graph info from https://www.sthda.com/english/wiki/ggplot2-line-plot-quick-start-guide-r-software-and-data-visualization
+
+# using the transpose because I did the matrices the wrong way ... oh well
+
+vtlong <-  vtmat |>
+  # Reshape data to long format
+  pivot_longer(cols = c("Younger", "Antimode", "Older"))
+
+# create labels with the value of each median age
+vtlong$labels <- vtlong$value
+
+# these colors only work for the points for some reason
+vtlong$colors <- ifelse(vtlong$name == "Younger", "#00BFC4", ifelse(vtlong$name == "Older", "#F8766D", "gray"))
+# for some reason I need to do the line colors serially -- needs to be done in alphabetical order [antimode first]
+vtlinecolors <- rep(c("gray", "#F8766D", "#00BFC4"), each=nrow(vtlong)/3)
+
+pvt <- ggplot(data = vtlong, aes(x = Year, y = value, fill = name, group=name, color=factor(name))) +
+  # Implement a line graph
+  geom_line(stat = "identity", size = 1, color = vtlinecolors) + geom_point(size = 2, color = vtlong$colors) + theme_light() + ggtitle("Median opioid-detected overdose decedent ages \n by age group in VT, 2009-2023") + ylab("Median age") + theme(plot.title = element_text(hjust = 0.5)) + scale_fill_discrete(guide="none") + scale_x_continuous(breaks=vtmat$Year) + xlab("Year") + guides(color = guide_legend(title = "Age group"))+ geom_text_repel(aes(label = labels, x = Year, y = value), nudge_y = 0.1, na.rm = FALSE, color = "black", size = 3, label.size = NA, fill = NA)
+
+pvt
+
+#ncmat <- data.frame(Agegroup  = c("Younger", "Older"), Year_2009 = c(NA, NA), Year_2010 = c(NA, NA), Year_2011 = c(26, 47), Year_2012 = c(29, 48), Year_2013 = c(NA, NA), Year_2014 = c(29, 49), Year_2015 = c(28, 48), Year_2016 = c(32, 53), Year_2017 = c(NA, NA), Year_2018 = c(NA, NA), Year_2019 = c(NA, NA), Year_2020 = c(NA, NA), Year_2021 = c(NA, NA), Year_2022 = c(30, 48), Year_2023 = c(NA, NA))
+
+# initialize empty df and add in the younger/older median ages
+ncmat <- data.frame(matrix(ncol = 3, nrow = 15))
+colnames(ncmat) <- c("Year", "Younger",  "Older")
+ncmat$Year <- c(2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023)
+ncmat$Younger <- c(27, 20, 26, 28, 34, 29, 28, 32, NA, 33, NA, NA, 29, 30, NA)
+ncmat$Antimode <- c(33, 39, 33, 35, 46, 37, 35, 45, NA, 46, NA, NA, 35, 36, NA)
+ncmat$Older <- c(46, 49, 46, 47, 53, 48, 48, 52, NA, 54, NA, NA, 46, 47, NA)
+
+# increasing line size from https://stackoverflow.com/questions/14794599/how-to-change-line-width-in-ggplot
+# line graph info from https://www.sthda.com/english/wiki/ggplot2-line-plot-quick-start-guide-r-software-and-data-visualization
+
+# using the transpose because I did the matrices the wrong way ... oh well
+
+nclong <-  ncmat |>
+  # Reshape data to long format
+  pivot_longer(cols = c("Younger", "Antimode", "Older"))
+
+# create labels with the value of each median age
+nclong$labels <- nclong$value
+
+# these colors only work for the points for some reason
+nclong$colors <- ifelse(nclong$name == "Younger", "#00BFC4", ifelse(nclong$name == "Older", "#F8766D", "gray"))
+# for some reason I need to do the line colors serially -- needs to be done in alphabetical order [antimode first]
+nclinecolors <- rep(c("gray", "#F8766D", "#00BFC4"), each=nrow(nclong)/3)
+
+pnc <- ggplot(data = nclong, aes(x = Year, y = value, fill = name, group=name, color=factor(name))) +
+  # Implement a line graph
+  geom_line(stat = "identity", size = 1, color = nclinecolors) + geom_point(size = 2, color = nclong$colors) + theme_light() + ggtitle("Median opioid-detected overdose decedent ages \n by age group in NC, 2009-2023") + ylab("Median age") + theme(plot.title = element_text(hjust = 0.5)) + scale_fill_discrete(guide="none") + scale_x_continuous(breaks=ncmat$Year) + xlab("Year") + guides(color = guide_legend(title = "Age group"))+ geom_text_repel(aes(label = labels, x = Year, y = value), nudge_y = 0.1, na.rm = FALSE, color = "black", size = 3, label.size = NA, fill = NA)
+
+pnc
+
+
+# initialize empty df and add in the younger/older median ages
+nymat <- data.frame(matrix(ncol = 3, nrow = 6))
+colnames(nymat) <- c("Year", "Younger",  "Older")
+nymat$Year <- c(2018, 2019, 2020, 2021, 2022, 2023)
+nymat$Younger <- c(31, 33, 34, 35, 36, 38)
+nymat$Antimode <- c(42, 45, 45, 48, 47, 50)
+nymat$Older <- c(53, 54, 55, 57, 56, 59)
+
+# increasing line size from https://stackoverflow.com/questions/14794599/how-to-change-line-width-in-ggplot
+# line graph info from https://www.sthda.com/english/wiki/ggplot2-line-plot-quick-start-guide-r-software-and-data-visualization
+
+# using the transpose because I did the matrices the wrong way ... oh well
+
+nylong <-  nymat |>
+  # Reshape data to long format
+  pivot_longer(cols = c("Younger", "Antimode", "Older"))
+
+# create labels with the value of each median age
+nylong$labels <- nylong$value
+
+# these colors only work for the points for some reason
+nylong$colors <- ifelse(nylong$name == "Younger", "#00BFC4", ifelse(nylong$name == "Older", "#F8766D", "gray"))
+# for some reason I need to do the line colors serially -- needs to be done in alphabetical order [antimode first]
+nylinecolors <- rep(c("gray", "#F8766D", "#00BFC4"), each=nrow(nylong)/3)
+
+pny <- ggplot(data = nylong, aes(x = Year, y = value, fill = name, group=name, color=factor(name))) +
+  # Implement a line graph
+  geom_line(stat = "identity", size = 1, color = nylinecolors) + geom_point(size = 2, color = nylong$colors) + theme_light() + ggtitle("Median opioid-detected overdose decedent ages \n by age group in NY, 2018-2023") + ylab("Median age") + theme(plot.title = element_text(hjust = 0.5)) + scale_fill_discrete(guide="none") + scale_x_continuous(breaks=nymat$Year) + xlab("Year") + guides(color = guide_legend(title = "Age group"))+ geom_text_repel(aes(label = labels, x = Year, y = value), nudge_y = 0.1, na.rm = FALSE, color = "black", size = 3, label.size = NA, fill = NA)
+
+pny
+```
+```{r allStates, echo=FALSE, message = FALSE, warning = FALSE}
+# initialize empty df and add in the younger median ages
+youngermat <- data.frame(matrix(ncol = 4, nrow = 15))
+colnames(youngermat) <- c("Year", "Connecticut", "Massachusetts", "New_York")
+youngermat$Year <- c(2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023)
+youngermat$Connecticut <- c(27, 25, 28, 30, 28, 29, 31, 30, 33, 35, 35, 34, 36, 36, 38)
+youngermat$Massachusetts <- c(27, 29, 28, 30, 30, 31, NA, NA, 32, 33, 33, 35, 36, 37, 37)
+youngermat$New_York <- c(NA, NA, NA, NA, NA, NA, NA, NA, NA, 31, 33, 34, 35, 36, 38)
+
+# using the transpose because I did the matrices the wrong way ... oh well
+
+youngerlong <-  youngermat |>
+  # Reshape data to long format
+  pivot_longer(cols = c("Connecticut", "Massachusetts", "New_York"))
+
+# create labels with the value of each median age
+# I'm doing the antimode labels separately because the long table doesn't let me add antimodes into "value" and I'm not sure that doing so would be helpful anyway
+youngerlong$labels <- youngerlong$value
+
+# to get the labels to show the respective colors: 
+# ggplot(data = masslong, aes(x = Year, y = value, fill = name, group=name, color=factor(name)) + geom_line(stat = "identity", size = 1) + geom_point()
+
+# these colors only work for the points for some reason
+youngerlong$colors <- ifelse(youngerlong$name == "Connecticut", "#E69F00", ifelse(youngerlong$name == "Massachusetts", "#009E73", "#0072B2"))
+# for some reason I need to do the line colors serially -- needs to be done in alphabetical order [antimode first]
+youngerlinecolors <- rep(c("#E69F00", "#009E73", "#0072B2"), each=nrow(youngerlong)/3)
+
+pyounger <- ggplot(data = youngerlong, aes(x = Year, y = value, fill = name, group=name, color=factor(name))) +
+  # Implement a line graph
+  geom_line(stat = "identity", size = 1, color = youngerlinecolors) + geom_point(size = 2, color = youngerlong$colors) + theme_light() + ggtitle("Median opioid-detected overdose decedent ages \n in younger decedents, 2009-2023") + ylab("Median age") + theme(plot.title = element_text(hjust = 0.5)) + scale_fill_discrete(guide="none") + scale_x_continuous(breaks=youngermat$Year) + xlab("Year") + guides(color = guide_legend(title = "State"))+ geom_text_repel(aes(label = labels, x = Year, y = value), nudge_x = 0, nudge_y = -0.1, na.rm = FALSE, color = "black", size = 3, label.size = NA, fill=NA)
+
+pyounger
+
+
+# initialize empty df and add in the older median ages
+oldermat <- data.frame(matrix(ncol = 4, nrow = 15))
+colnames(oldermat) <- c("Year", "Connecticut", "Massachusetts", "New_York")
+oldermat$Year <- c(2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023)
+oldermat$Connecticut <- c(45, 46, 49, 50, 49, 49, 53, 50, 53, 55, 55, 56, 56, 57, 59)
+oldermat$Massachusetts <- c(47, 47, 47, 48, 48, 51, NA, NA, 52, 54, 54, 55, 55, 57, 57)
+oldermat$New_York <- c(NA, NA, NA, NA, NA, NA, NA, NA, NA, 53, 54, 55, 57, 56, 59)
+
+# using the transpose because I did the matrices the wrong way ... oh well
+
+olderlong <-  oldermat |>
+  # Reshape data to long format
+  pivot_longer(cols = c("Connecticut", "Massachusetts", "New_York"))
+
+# create labels with the value of each median age
+# I'm doing the antimode labels separately because the long table doesn't let me add antimodes into "value" and I'm not sure that doing so would be helpful anyway
+olderlong$labels <- olderlong$value
+
+# to get the labels to show the respective colors: 
+# ggplot(data = masslong, aes(x = Year, y = value, fill = name, group=name, color=factor(name)) + geom_line(stat = "identity", size = 1) + geom_point()
+
+# these colors only work for the points for some reason
+olderlong$colors <- ifelse(olderlong$name == "Connecticut", "#E69F00", ifelse(olderlong$name == "Massachusetts", "#009E73", "#0072B2"))
+# for some reason I need to do the line colors serially -- needs to be done in alphabetical order [antimode first]
+olderlinecolors <- rep(c("#E69F00", "#009E73", "#0072B2"), each=nrow(olderlong)/3)
+
+polder <- ggplot(data = olderlong, aes(x = Year, y = value, fill = name, group=name, color=factor(name))) +
+  # Implement a line graph
+  geom_line(stat = "identity", size = 1, color = olderlinecolors) + geom_point(size = 2, color = olderlong$colors) + theme_light() + ggtitle("Median opioid-detected overdose decedent ages \n in older decedents, 2009-2023") + ylab("Median age") + theme(plot.title = element_text(hjust = 0.5)) + scale_fill_discrete(guide="none") + scale_x_continuous(breaks=oldermat$Year) + xlab("Year") + guides(color = guide_legend(title = "State"))+ geom_text_repel(aes(label = labels, x = Year, y = value), nudge_x = 0, nudge_y = -0.1, na.rm = FALSE, color = "black", size = 3, label.size = NA, fill=NA)
+
+polder
+
+
+
+# initialize empty df and add in the antimode values
+cutoffmat <- data.frame(matrix(ncol = 4, nrow = 15))
+colnames(cutoffmat) <- c("Year", "Connecticut", "Massachusetts", "New_York")
+cutoffmat$Year <- c(2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023)
+cutoffmat$Connecticut <-  c(32, 32, 38, 40, 37, 38, 42, 37, 43, 47, 46, 45, 45, 46, 48)
+cutoffmat$Massachusetts <- c(35, 35, 35, 37, 37, 43, NA, NA, 43, 45, 45, 46, 47, 48, 48)
+cutoffmat$New_York <- c(NA, NA, NA, NA, NA, NA, NA, NA, NA, 42, 45, 45, 48, 47, 50)
+
+# using the transpose because I did the matrices the wrong way ... oh well
+
+cutofflong <-  cutoffmat |>
+  # Reshape data to long format
+  pivot_longer(cols = c("Connecticut", "Massachusetts", "New_York"))
+
+# create labels with the value of each median age
+# I'm doing the antimode labels separately because the long table doesn't let me add antimodes into "value" and I'm not sure that doing so would be helpful anyway
+cutofflong$labels <- cutofflong$value
+
+# to get the labels to show the respective colors: 
+# ggplot(data = masslong, aes(x = Year, y = value, fill = name, group=name, color=factor(name)) + geom_line(stat = "identity", size = 1) + geom_point()
+
+# these colors only work for the points for some reason
+cutofflong$colors <- ifelse(cutofflong$name == "Connecticut", "#E69F00", ifelse(cutofflong$name == "Massachusetts", "#009E73", "#0072B2"))
+# for some reason I need to do the line colors serially -- needs to be done in alphabetical order [antimode first]
+cutofflinecolors <- rep(c("#E69F00", "#009E73", "#0072B2"), each=nrow(cutofflong)/3)
+
+pcutoff <- ggplot(data = cutofflong, aes(x = Year, y = value, fill = name, group=name, color=factor(name))) +
+  # Implement a line graph
+  geom_line(stat = "identity", size = 1, color = cutofflinecolors) + geom_point(size = 2, color = olderlong$colors) + theme_light() + ggtitle("Age cutoff values for all years, 2009-2023") + ylab("Age cutoff value") + theme(plot.title = element_text(hjust = 0.5)) + scale_fill_discrete(guide="none") + scale_x_continuous(breaks=cutoffmat$Year) + xlab("Year") + guides(color = guide_legend(title = "State"))+ geom_text_repel(aes(label = labels, x = Year, y = value), nudge_x = 0, nudge_y = -0.1, na.rm = FALSE, color = "black", size = 3, label.size = NA, fill=NA)
+
+pcutoff
+
+```

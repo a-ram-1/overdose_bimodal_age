@@ -1,0 +1,2914 @@
+---
+title: "Fatal opioid-detected overdoses in Connecticut, 2018-2022"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    toc_collapsed: true
+    toc_depth: 5
+    theme: lumen
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+<a href="https://ctoverdosedeath.github.io">
+  <button>Home</button>
+</a>
+<a href="https://ctoverdosedeath.github.io/allstate.html">
+  <button>Statewide</button>
+</a>
+<a href="https://ctoverdosedeath.github.io/region1.html">
+  <button>Region 1</button>
+</a>
+<a href="https://ctoverdosedeath.github.io/region2.html">
+  <button>Region 2</button>
+</a>
+<a href="https://ctoverdosedeath.github.io/region3.html">
+  <button>Region 3</button>
+</a>
+<a href="https://ctoverdosedeath.github.io/region4.html">
+  <button>Region 4</button>
+</a>
+<a href="https://ctoverdosedeath.github.io/region5.html">
+  <button>Region 5</button>
+</a>
+<a href="https://ctoverdosedeath.github.io/region6.html">
+  <button>Region 6</button>
+</a>
+
+  
+```{r importData, echo=FALSE, message=FALSE, warning=FALSE}
+library(tigris)
+library(ggplot2)
+library(stringr)
+library(dplyr)
+library(lubridate)
+library(patchwork)
+library(tidyverse) #to replace NA with something else
+library(sf)
+library(multimode) #to calculate modes for the age plot
+library(findSVI) #for SVI calculation
+
+# import OCME data and convert the date into a "date" data type so we can work with it
+
+ocme_2018 <- read.csv("ocme_2018.csv")
+ocme_2018$DOD = as.Date(ocme_2018$DOD, "%m/%d/%Y")
+#add in day of week -- from https://stackoverflow.com/questions/9216138/find-the-day-of-a-week
+ocme_2018$Weekday <- weekdays(ocme_2018$DOD)
+
+ocme_2019 <- read.csv("ocme_2019.csv")
+ocme_2019$DOD = as.Date(ocme_2019$DOD, "%m/%d/%Y")
+#add in day of week
+ocme_2019$Weekday <- weekdays(ocme_2019$DOD)
+
+ocme_2020 <- read.csv("OCME_2020.csv")
+ocme_2020$DOD = as.Date(ocme_2020$DOD, "%m/%d/%Y")
+#add in day of week
+ocme_2020$Weekday <- weekdays(ocme_2020$DOD)
+
+ocme_2021 <- read.csv("OCME_2021.csv")
+ocme_2021$DateofDeath = as.Date(ocme_2021$DateofDeath, "%m/%d/%Y")
+#add in day of week
+ocme_2021$Weekday <- weekdays(ocme_2021$DateofDeath)
+
+ocme_2022 <- read.csv("OCME_2022.csv")
+ocme_2022$Date.of.Death = as.Date(ocme_2022$Date.of.Death, "%m/%d/%Y")
+#add in day of week
+ocme_2022$Weekday <- weekdays(ocme_2022$Date.of.Death)
+
+# adding in county/city population data from https://portal.ct.gov/DPH/Health-Information-Systems--Reporting/Population/Annual-Town-and-County-Population-for-Connecticut -- I converted to csv and isolated county/city in separate files
+
+county_pop_2018 <- read.csv("county_pop_2018.csv")
+# I think the population numbers will be read as strings, so convert them to numbers so we can manipulate
+# the commas were causing NAs when converting to numeric, solution to remove from https://stackoverflow.com/questions/57656023/as-numeric-returns-na-for-no-apparent-reason-for-some-of-the-values-in-a-column
+county_pop_2018$Pop <- as.numeric(gsub(",","",county_pop_2018$Pop))
+
+county_pop_2019 <- read.csv("county_pop_2019.csv")
+# I think the population numbers will be read as strings, so convert them to numbers so we can manipulate
+county_pop_2019$Pop <- as.numeric(gsub(",","",county_pop_2019$Pop)) 
+
+county_pop_2020 <- read.csv("county_pop_2020.csv")
+# I think the population numbers will be read as strings, so convert them to numbers so we can manipulate
+county_pop_2020$Pop <- as.numeric(gsub(",","",county_pop_2020$Pop))
+
+county_pop_2021 <- read.csv("county_pop_2021.csv")
+# I think the population numbers will be read as strings, so convert them to numbers so we can manipulate
+county_pop_2021$Pop <- as.numeric(gsub(",","",county_pop_2021$Pop))
+
+# for 2022 I had to manually calculate the county-level population estimates using [this](https://www1.ctdol.state.ct.us/lmi/misc/counties.asp) since CT had switched to reporting "planning region" estimates instead of county. I will continue using county for the sake of consistency
+county_pop_2022 <- read.csv("county_pop_2022.csv")
+# I think the population numbers will be read as strings, so convert them to numbers so we can manipulate
+county_pop_2022$Pop <- as.numeric(gsub(",","",county_pop_2022$Pop))
+
+
+city_pop_2018 <- read.csv("city_pop_2018.csv")
+# I think the population numbers will be read as strings, so convert them to numbers so we can manipulate
+city_pop_2018$Pop <- as.numeric(gsub(",","",city_pop_2018$Pop))
+
+city_pop_2019 <- read.csv("city_pop_2019.csv")
+# I think the population numbers will be read as strings, so convert them to numbers so we can manipulate
+city_pop_2019$Pop <- as.numeric(gsub(",","",city_pop_2019$Pop))
+
+city_pop_2020 <- read.csv("city_pop_2020.csv")
+# I think the population numbers will be read as strings, so convert them to numbers so we can manipulate
+city_pop_2020$Pop <- as.numeric(gsub(",","",city_pop_2020$Pop))
+
+city_pop_2021 <- read.csv("city_pop_2021.csv")
+# I think the population numbers will be read as strings, so convert them to numbers so we can manipulate
+city_pop_2021$Pop <- as.numeric(gsub(",","",city_pop_2021$Pop))
+
+city_pop_2022 <- read.csv("city_pop_2022.csv")
+# I think the population numbers will be read as strings, so convert them to numbers so we can manipulate
+city_pop_2022$Pop <- as.numeric(gsub(",","",city_pop_2022$Pop))
+
+# get town data from tigris so we can map deaths by town later
+
+options(tigris_use_cache=TRUE)
+ct_towns = county_subdivisions(state="Connecticut")
+ct_towns$NAME = str_to_title(ct_towns$NAME)
+ct_towns = filter(ct_towns, NAME != "County Subdivisions Not Defined")
+# tigris also has shapefiles for the long island sound so let's get rid of that
+ct_towns <- subset(ct_towns, ALAND!=0)
+```
+
+  
+### Race {.tabset}
+
+#### 2018
+
+```{r raceNumeric2018, echo=FALSE, message=FALSE, warning=FALSE}
+# we don't want to see the numerical labels but rather the actual race values, so let's create another variable that turns race_numeric into words
+
+ocme_2018$race_numeric_words <- ifelse(ocme_2018$race_.numeric == "1", "White", ifelse(ocme_2018$race_.numeric == "2", "Black", ifelse(ocme_2018$race_.numeric == "3", "Hispanic", ifelse(ocme_2018$race_.numeric == "4", "Other", ifelse(ocme_2018$race_.numeric == "7", "Unknown", ocme_2018$race_.numeric)))))
+
+ggplot(data=ocme_2018, aes(x=race_numeric_words, ..count..)) + 
+      geom_bar(aes(fill = race_numeric_words), position = "dodge") + scale_fill_brewer(palette="Spectral") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black")+ ggtitle("Racial distribution for 2018 opioid-detected overdose deaths")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+raceProp2018 <- ggplot(data=ocme_2018, aes(x=race_numeric_words, ..count..)) + 
+      geom_bar(aes(fill = race_numeric_words), position = "dodge") + scale_fill_brewer(palette="Spectral") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = round(..count../nrow(ocme_2018), 3)), stat = "count", vjust = 0, colour = "black")+ ggtitle("Racial distribution for 2018 opioid-detected overdose deaths")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+raceProp2018
+
+#save this one for the presentation
+ggsave(plot=raceProp2018, filename = "images/statewide/race_proportions_2018.png", width = 10, height = 8)
+```
+
+#### 2019
+
+```{r raceNumeric2019, echo=FALSE, message=FALSE, warning=FALSE}
+# we don't want to see the numerical labels but rather the actual race values, so let's create another variable that turns race_numeric into words
+
+ocme_2019$race_numeric_words <- ifelse(ocme_2019$race_numeric...1.White..........2.Black....3.Hispanic...4.Other....7.UNK == "1", "White", ifelse(ocme_2019$race_numeric...1.White..........2.Black....3.Hispanic...4.Other....7.UNK == "2", "Black", ifelse(ocme_2019$race_numeric...1.White..........2.Black....3.Hispanic...4.Other....7.UNK == "3", "Hispanic", ifelse(ocme_2019$race_numeric...1.White..........2.Black....3.Hispanic...4.Other....7.UNK == "4", "Other", ifelse(ocme_2019$race_numeric...1.White..........2.Black....3.Hispanic...4.Other....7.UNK == "7", "Unknown", ocme_2019$race_numeric...1.White..........2.Black....3.Hispanic...4.Other....7.UNK)))))
+
+ggplot(data=ocme_2019, aes(x=race_numeric_words, ..count..)) + 
+      geom_bar(aes(fill = race_numeric_words), position = "dodge") + scale_fill_brewer(palette="Spectral") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black")+ ggtitle("Racial distribution for 2019 opioid-detected overdose deaths")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+raceProp2019 <- ggplot(data=ocme_2019, aes(x=race_numeric_words, ..count..)) + 
+      geom_bar(aes(fill = race_numeric_words), position = "dodge") + scale_fill_brewer(palette="Spectral") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = round(..count../nrow(ocme_2019), 3)), stat = "count", vjust = 0, colour = "black")+ ggtitle("Racial distribution for 2019 opioid-detected overdose deaths")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+raceProp2019
+
+#save this one for the presentation
+ggsave(plot=raceProp2019, filename = "images/statewide/race_proportions_2019.png", width = 10, height = 8)
+
+```
+
+#### 2020
+
+
+```{r raceNumeric2020, echo=FALSE, message=FALSE, warning=FALSE}
+# we don't want to see the numerical labels but rather the actual race values, so let's create another variable that turns race_numeric into words
+
+ocme_2020$race_numeric_words <- ifelse(ocme_2020$race_numeric...1.White..........2.Black....3.Hispanic...4.Other....7.UNK == "1", "White", ifelse(ocme_2020$race_numeric...1.White..........2.Black....3.Hispanic...4.Other....7.UNK == "2", "Black", ifelse(ocme_2020$race_numeric...1.White..........2.Black....3.Hispanic...4.Other....7.UNK == "3", "Hispanic", ifelse(ocme_2020$race_numeric...1.White..........2.Black....3.Hispanic...4.Other....7.UNK == "4", "Other", ifelse(ocme_2020$race_numeric...1.White..........2.Black....3.Hispanic...4.Other....7.UNK == "7", "Unknown", ocme_2020$race_numeric...1.White..........2.Black....3.Hispanic...4.Other....7.UNK)))))
+
+ggplot(data=ocme_2020, aes(x=race_numeric_words, ..count..)) + 
+      geom_bar(aes(fill = race_numeric_words), position = "dodge") + scale_fill_brewer(palette="Spectral") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black")+ ggtitle("Racial distribution for 2020 opioid-detected overdose deaths")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+raceProp2020 <- ggplot(data=ocme_2020, aes(x=race_numeric_words, ..count..)) + 
+      geom_bar(aes(fill = race_numeric_words), position = "dodge") + scale_fill_brewer(palette="Spectral") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = round(..count../nrow(ocme_2020), 3)), stat = "count", vjust = 0, colour = "black")+ ggtitle("Racial distribution for 2020 opioid-detected overdose deaths")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+raceProp2020
+
+#save this one for the presentation
+ggsave(plot=raceProp2020, filename = "images/statewide/race_proportions_2020.png", width = 10, height = 8)
+
+```
+
+
+#### 2021
+
+```{r raceNumeric2021, echo=FALSE, message=FALSE, warning=FALSE}
+# we don't want to see the numerical labels but rather the actual race values, so let's create another variable that turns race_numeric into words
+
+ocme_2021$race_numeric_words <- ifelse(ocme_2021$race_numeric...1.White..........2.Black....3.Hispanic...4.Other....7.UNK == "1", "White", ifelse(ocme_2021$race_numeric...1.White..........2.Black....3.Hispanic...4.Other....7.UNK == "2", "Black", ifelse(ocme_2021$race_numeric...1.White..........2.Black....3.Hispanic...4.Other....7.UNK == "3", "Hispanic", ifelse(ocme_2021$race_numeric...1.White..........2.Black....3.Hispanic...4.Other....7.UNK == "4", "Other", ifelse(ocme_2021$race_numeric...1.White..........2.Black....3.Hispanic...4.Other....7.UNK == "7", "Unknown", ocme_2021$race_numeric...1.White..........2.Black....3.Hispanic...4.Other....7.UNK)))))
+
+ggplot(data=ocme_2021, aes(x=race_numeric_words, ..count..)) + 
+      geom_bar(aes(fill = race_numeric_words), position = "dodge") + scale_fill_brewer(palette="Spectral") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black")+ ggtitle("Racial distribution for 2021 opioid-detected overdose deaths")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+raceProp2021 <- ggplot(data=ocme_2021, aes(x=race_numeric_words, ..count..)) + 
+      geom_bar(aes(fill = race_numeric_words), position = "dodge") + scale_fill_brewer(palette="Spectral") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = round(..count../nrow(ocme_2021), 3)), stat = "count", vjust = 0, colour = "black")+ ggtitle("Racial distribution for 2021 opioid-detected overdose deaths")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+raceProp2021
+
+#save this one for the presentation
+ggsave(plot=raceProp2021, filename = "images/statewide/race_proportions_2021.png", width = 10, height = 8)
+
+```
+
+
+#### 2022
+
+```{r raceNumeric2022, echo=FALSE, message=FALSE, warning=FALSE}
+# we don't want to see the numerical labels but rather the actual race values, so let's create another variable that turns race_numeric into words
+ocme_2022$race_numeric_words <- ifelse(ocme_2022$race_.numeric...1.White..........2.Black....3.Hispanic...4.Other....7.UNK == "1", "White", ifelse(ocme_2022$race_.numeric...1.White..........2.Black....3.Hispanic...4.Other....7.UNK == "2", "Black", ifelse(ocme_2022$race_.numeric...1.White..........2.Black....3.Hispanic...4.Other....7.UNK == "3", "Hispanic", ifelse(ocme_2022$race_.numeric...1.White..........2.Black....3.Hispanic...4.Other....7.UNK == "4", "Other", ifelse(ocme_2022$race_.numeric...1.White..........2.Black....3.Hispanic...4.Other....7.UNK == "7", "Unknown", ocme_2022$race_.numeric...1.White..........2.Black....3.Hispanic...4.Other....7.UNK)))))
+
+# there's a NA in here and for some reason replacing it using the line above didn't work, so we'll try this
+# from https://stackoverflow.com/questions/55910824/replace-na-with-unknown
+ocme_2022 <- ocme_2022 %>% replace_na(list(race_numeric_words = "Unknown"))
+
+ggplot(data=ocme_2022, aes(x=race_numeric_words, ..count..)) + 
+      geom_bar(aes(fill = race_numeric_words), position = "dodge") + scale_fill_brewer(palette="Spectral") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black")+ ggtitle("Racial distribution for 2022 opioid-detected overdose deaths")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+raceProp2022 <- ggplot(data=ocme_2022, aes(x=race_numeric_words, ..count..)) + 
+      geom_bar(aes(fill = race_numeric_words), position = "dodge") + scale_fill_brewer(palette="Spectral") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = round(..count../nrow(ocme_2022), 3)), stat = "count", vjust = 0, colour = "black")+ ggtitle("Racial distribution for 2022 opioid-detected overdose deaths")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+raceProp2022
+
+#save this one for the presentation
+ggsave(plot=raceProp2022, filename = "images/statewide/race_proportions_2022.png", width = 10, height = 8)
+
+```
+
+### Sex {.tabset}
+
+#### 2018
+
+```{r sexTable2018, echo=FALSE, message=FALSE, warning=FALSE}
+ocme_2018$Sex_revised <- ifelse(ocme_2018$sex == "", "Unknown", ocme_2018$sex)
+
+sex2018 <- ggplot(data=ocme_2018, aes(x=Sex_revised, ..count..)) + 
+      geom_bar(aes(fill = Sex_revised), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black")+ ggtitle("Sex distribution for 2018 opioid-detected overdose deaths")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+sex2018
+
+
+sexProp2018 <- ggplot(data=ocme_2018, aes(x=Sex_revised, ..count..)) + 
+      geom_bar(aes(fill = Sex_revised), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = round(..count../nrow(ocme_2018), 3)), stat = "count", vjust = 0, colour = "black")+ ggtitle("Sex distribution for 2018 opioid-detected overdose deaths")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+sexProp2018
+
+ggsave(plot=sexProp2018, filename = "images/statewide/sexProp2018.png", width = 10, height = 8)
+```
+
+#### 2019
+
+
+```{r sexTable2019, echo=FALSE, message=FALSE, warning=FALSE}
+
+sex2019 <- ggplot(data=ocme_2019, aes(x=sex, ..count..)) + 
+      geom_bar(aes(fill = sex), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black")+ ggtitle("Sex distribution for 2019 opioid-detected overdose deaths")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+sex2019
+
+sexProp2019 <- ggplot(data=ocme_2019, aes(x=sex, ..count..)) + 
+      geom_bar(aes(fill = sex), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = round(..count../nrow(ocme_2019), 3)), stat = "count", vjust = 0, colour = "black")+ ggtitle("Sex distribution for 2019 opioid-detected overdose deaths")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+sexProp2019
+
+ggsave(plot=sexProp2019, filename = "images/statewide/sexProp2019.png", width = 10, height = 8)
+
+```
+
+#### 2020
+
+```{r sexTable2020, echo=FALSE, message=FALSE, warning=FALSE}
+# There was one person whose race was just listed as blank, so I making it "Unknown"
+ocme_2020$Sex_revised <- ifelse(ocme_2020$Sex == "", "Unknown", ifelse(ocme_2020$Sex == " Male ", "Male", ocme_2020$Sex))
+
+sex2020 <- ggplot(data=ocme_2020, aes(x=Sex_revised, ..count..)) + 
+      geom_bar(aes(fill = Sex_revised), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black")+ ggtitle("Sex distribution for 2020 opioid-detected overdose deaths")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+sex2020
+
+#show the proportion of each sex, for easy comparison
+sexProp2020 <- ggplot(data=ocme_2020, aes(x=Sex_revised, ..count..)) + 
+      geom_bar(aes(fill = Sex_revised), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = round(..count../nrow(ocme_2020), 3)), stat = "count", vjust = 0, colour = "black")+ ggtitle("Sex distribution for 2020 opioid-detected overdose deaths")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+sexProp2020
+
+ggsave(plot=sexProp2020, filename = "images/statewide/sexProp2020.png", width = 10, height = 8)
+
+```
+
+
+#### 2021
+
+```{r sexTable2021, echo=FALSE, message=FALSE, warning=FALSE}
+# There was one person whose race was just listed as blank, so I making it "Unknown"
+ocme_2021$Sex_revised <- ifelse(ocme_2021$Sex == "", "Unknown", ocme_2021$Sex)
+
+sex2021 <- ggplot(data=ocme_2021, aes(x=Sex_revised, ..count..)) + 
+      geom_bar(aes(fill = Sex_revised), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black")+ ggtitle("Sex distribution for 2021 opioid-detected overdose deaths")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+sex2021
+
+sexProp2021 <- ggplot(data=ocme_2021, aes(x=Sex_revised, ..count..)) + 
+      geom_bar(aes(fill = Sex_revised), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = round(..count../nrow(ocme_2021), 3)), stat = "count", vjust = 0, colour = "black")+ ggtitle("Sex distribution for 2021 opioid-detected overdose deaths")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+sexProp2021
+
+ggsave(plot=sexProp2021, filename = "images/statewide/sexProp2021.png", width = 10, height = 8)
+```
+
+#### 2022
+
+```{r sexTable2022, echo=FALSE, message=FALSE, warning=FALSE}
+sex2022 <- ggplot(data=ocme_2022, aes(x=Sex, ..count..)) + 
+      geom_bar(aes(fill = Sex), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black")+ ggtitle("Sex distribution for 2022 opioid-detected overdose deaths")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+sex2022
+
+sexProp2022 <- ggplot(data=ocme_2022, aes(x=Sex, ..count..)) + 
+      geom_bar(aes(fill = Sex), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = round(..count../nrow(ocme_2022), 3)), stat = "count", vjust = 0, colour = "black")+ ggtitle("Sex distribution for 2022 opioid-detected overdose deaths")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+sexProp2022
+
+ggsave(plot=sexProp2022, filename = "images/statewide/sexProp2022.png", width = 10, height = 8)
+```
+
+### Race and sex {.tabset}
+
+#### 2018
+
+```{r sexRaceTable2018, echo=FALSE, message=FALSE, warning=FALSE}
+#concatenate the race and sex variables, so "Black" and "female" becomes "Black female"
+ocme_2018$race_sex <- paste(ocme_2018$race_numeric_words, ocme_2018$sex, sep = " ")
+
+raceSex2018 <- ggplot(data=ocme_2018, aes(x=race_sex, ..count..)) + 
+      geom_bar(aes(fill = race_sex), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black")+ ggtitle("Race/sex distribution for 2018 opioid-detected overdose deaths")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+raceSex2018
+
+raceSexProp2018 <- ggplot(data=ocme_2018, aes(x=race_sex, ..count..)) + 
+      geom_bar(aes(fill = race_sex), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = round(..count../nrow(ocme_2018), 3)), stat = "count", vjust = 0, colour = "black")+ ggtitle("Race/sex distribution for 2018 opioid-detected overdose deaths")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+raceSexProp2018
+
+ggsave(plot=raceSexProp2018, filename = "images/statewide/raceSexProp2018.png", width = 10, height = 8)
+
+```
+
+#### 2019
+
+```{r sexRaceTable2019, echo=FALSE, message=FALSE, warning=FALSE}
+#concatenate the race and sex variables, so "Black" and "female" becomes "Black female"
+ocme_2019$race_sex <- paste(ocme_2019$race_numeric_words, ocme_2019$sex, sep = " ")
+
+raceSex2019 <- ggplot(data=ocme_2019, aes(x=race_sex, ..count..)) + 
+      geom_bar(aes(fill = race_sex), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black")+ ggtitle("Race/sex distribution for 2019 opioid-detected overdose deaths")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+raceSex2019
+
+raceSexProp2019 <- ggplot(data=ocme_2019, aes(x=race_sex, ..count..)) + 
+      geom_bar(aes(fill = race_sex), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = round(..count../nrow(ocme_2019), 3)), stat = "count", vjust = 0, colour = "black")+ ggtitle("Race/sex distribution for 2019 opioid-detected overdose deaths")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+raceSexProp2019
+
+ggsave(plot=raceSexProp2019, filename = "images/statewide/raceSexProp2019.png", width = 10, height = 8)
+
+```
+
+
+#### 2020
+
+```{r sexRaceTable2020, echo=FALSE, message=FALSE, warning=FALSE}
+# There was one person whose race was just listed as blank, so I making it "Unknown"
+ocme_2020$race_sex <- paste(ocme_2020$race_numeric_words, ocme_2020$Sex_revised, sep = " ")
+
+raceSex2020 <- ggplot(data=ocme_2020, aes(x=race_sex, ..count..)) + 
+      geom_bar(aes(fill = race_sex), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black")+ ggtitle("Race/sex distribution for 2020 opioid-detected overdose deaths")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+raceSex2020
+
+raceSexProp2020 <- ggplot(data=ocme_2020, aes(x=race_sex, ..count..)) + 
+      geom_bar(aes(fill = race_sex), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = round(..count../nrow(ocme_2020), 3)), stat = "count", vjust = 0, colour = "black")+ ggtitle("Race/sex distribution for 2020 opioid-detected overdose deaths")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+raceSexProp2020
+
+ggsave(plot=raceSexProp2020, filename = "images/statewide/raceSexProp2020.png", width = 10, height = 8)
+
+```
+
+
+#### 2021
+
+```{r sexRaceTable2021, echo=FALSE, message=FALSE, warning=FALSE}
+ocme_2021$race_sex <- paste(ocme_2021$race_numeric_words, ocme_2021$Sex_revised, sep = " ")
+
+raceSex2021 <- ggplot(data=ocme_2021, aes(x=race_sex, ..count..)) + 
+      geom_bar(aes(fill = race_sex), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black")+ ggtitle("Race/sex distribution for 2021 opioid-detected overdose deaths")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+raceSex2021
+
+raceSexProp2021 <- ggplot(data=ocme_2021, aes(x=race_sex, ..count..)) + 
+      geom_bar(aes(fill = race_sex), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = round(..count../nrow(ocme_2021), 3)), stat = "count", vjust = 0, colour = "black")+ ggtitle("Race/sex distribution for 2021 opioid-detected overdose deaths")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+raceSexProp2021
+
+ggsave(plot=raceSexProp2021, filename = "images/statewide/raceSexProp2021.png", width = 10, height = 8)
+
+```
+
+
+#### 2022
+
+
+```{r sexRaceTable2022, echo=FALSE, message=FALSE, warning=FALSE}
+ocme_2022$race_sex <- paste(na.omit(ocme_2022$race_numeric_words), ocme_2022$Sex, sep = " ")
+
+raceSex2022 <- ggplot(data=ocme_2022, aes(x=race_sex, ..count..)) + 
+      geom_bar(aes(fill = race_sex), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black")+ ggtitle("Race/sex distribution for 2022 opioid-detected overdose deaths")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+raceSex2022
+
+raceSexProp2022 <- ggplot(data=ocme_2022, aes(x=race_sex, ..count..)) + 
+      geom_bar(aes(fill = race_sex), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = round(..count../nrow(ocme_2022), 3)), stat = "count", vjust = 0, colour = "black")+ ggtitle("Race/sex distribution for 2022 opioid-detected overdose deaths")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+raceSexProp2022
+
+ggsave(plot=raceSexProp2022, filename = "images/statewide/raceSexProp2022.png", width = 10, height = 8)
+
+```
+
+### Age {.tabset}
+
+The black lines on the plots represent modes. The approach I used to calculate modes creates a continuous approximation of the age distribution [which admittedly is not the best approach here since age is a discrete variable]. I'll be looking for a better approach. 
+
+#### 2018
+
+```{r age2018, echo=FALSE, message=FALSE, warning=FALSE}
+#there was an issue with the x axis not showing up when I coped the other histogram code -- resolved using https://stackoverflow.com/questions/42425195/ggplot-data-year-over-year-axis-labels-not-showing
+
+#fixed issue with colors not showing -- turns out it was because the data was numeric: https://stackoverflow.com/questions/55400037/ggplot-geom-bar-fill-not-coloring-bars-on-plot
+
+#calculate modes, see https://stackoverflow.com/questions/27418461/calculate-the-modes-in-a-multimodal-distribution-in-r
+
+# Select an appropriate bandwidth. Here we use a "rule of thumb" method
+# looks like there are some NAs in the 2018 data so I have to get rid of them
+bandwidth <- bw.nrd0(na.omit(ocme_2018$age)) 
+
+# Other methods, e.g. bw.ucv(), will identify different bandwidths as optimal
+# Consequently the number (and position) of modes may differ too
+
+# Methods implemented in multimode are documented at ?bw.nrd
+
+# Calculate number of modes
+n <- nmodes(ocme_2018$age, bw = bandwidth)
+
+# Calculate location of these modes
+loc <- locmodes(ocme_2018$age, mod0 = n)
+# Remove `, display = TRUE` if you don't want to see the KDE
+#loc
+
+# Locations of modes are odd values in loc
+modes <- loc$locations[seq(from = 1, by = 2, length.out = n)]
+
+
+#added multiple mode lines to plot using https://stackoverflow.com/questions/71580196/add-horizontal-lines-from-a-vector-to-a-ggplot-uisng-facet-grid
+
+
+# a plot without mode lines or anything, with the number of people dying for each age 
+ggplot(data=ocme_2018, aes(x=age, ..count..)) + 
+      geom_bar(aes(fill = as.character(age)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 90), breaks = ocme_2018$age, labels = ocme_2018$age) + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black", size = 7/.pt) + theme_light() + ggtitle("Age distribution for 2018 opioid-detected deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 7))
+
+age_2018 <- ggplot(data=ocme_2018, aes(x=age, ..count..)) + 
+      geom_bar(aes(fill = as.character(age)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 90), breaks = ocme_2018$age, labels = ocme_2018$age) + theme_light() + geom_vline(xintercept = modes[-length(modes)], size=1) + ggtitle("Age distribution for 2018 opioid-detected deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 7))
+
+age_2018
+
+ggsave(plot=age_2018, filename = "images/statewide/age_2018.png", width = 10, height = 8)
+ 
+```
+
+#### 2019
+
+```{r age2019, echo=FALSE, message=FALSE, warning=FALSE}
+#there was an issue with the x axis not showing up when I coped the other histogram code -- resolved using https://stackoverflow.com/questions/42425195/ggplot-data-year-over-year-axis-labels-not-showing
+
+#fixed issue with colors not showing -- turns out it was because the data was numeric: https://stackoverflow.com/questions/55400037/ggplot-geom-bar-fill-not-coloring-bars-on-plot
+
+#calculate modes, see https://stackoverflow.com/questions/27418461/calculate-the-modes-in-a-multimodal-distribution-in-r
+
+# Select an appropriate bandwidth. Here we use a "rule of thumb" method
+bandwidth <- bw.nrd0(ocme_2019$age) 
+
+# Other methods, e.g. bw.ucv(), will identify different bandwidths as optimal
+# Consequently the number (and position) of modes may differ too
+
+# Methods implemented in multimode are documented at ?bw.nrd
+
+# Calculate number of modes
+n <- nmodes(ocme_2019$age, bw = bandwidth)
+
+# Calculate location of these modes
+loc <- locmodes(ocme_2019$age, mod0 = n)
+# Remove `, display = TRUE` if you don't want to see the KDE
+#loc
+
+# Locations of modes are odd values in loc
+modes <- loc$locations[seq(from = 1, by = 2, length.out = n)]
+
+
+#added multiple mode lines to plot using https://stackoverflow.com/questions/71580196/add-horizontal-lines-from-a-vector-to-a-ggplot-uisng-facet-grid
+
+
+# a plot without mode lines or anything, with the number of people dying for each age 
+ggplot(data=ocme_2019, aes(x=age, ..count..)) + 
+      geom_bar(aes(fill = as.character(age)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 90), breaks = ocme_2019$age, labels = ocme_2019$age) + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black", size = 7/.pt) + theme_light() + ggtitle("Age distribution for 2019 opioid-detected deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 7))
+
+age_2019 <- ggplot(data=ocme_2019, aes(x=age, ..count..)) + 
+      geom_bar(aes(fill = as.character(age)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 90), breaks = ocme_2019$age, labels = ocme_2019$age) + theme_light() + geom_vline(xintercept = modes, size=1) + ggtitle("Age distribution for 2019 opioid-detected deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 7))
+
+age_2019
+
+ggsave(plot=age_2019, filename = "images/statewide/age_2019.png", width = 10, height = 8)
+
+```
+
+#### 2020
+
+```{r age2020, echo=FALSE, message=FALSE, warning=FALSE}
+#there was an issue with the x axis not showing up when I coped the other histogram code -- resolved using https://stackoverflow.com/questions/42425195/ggplot-data-year-over-year-axis-labels-not-showing
+
+#fixed issue with colors not showing -- turns out it was because the data was numeric: https://stackoverflow.com/questions/55400037/ggplot-geom-bar-fill-not-coloring-bars-on-plot
+
+#calculate modes, see https://stackoverflow.com/questions/27418461/calculate-the-modes-in-a-multimodal-distribution-in-r
+
+# Select an appropriate bandwidth. Here we use a "rule of thumb" method
+bandwidth <- bw.nrd0(ocme_2020$Age) 
+
+# Other methods, e.g. bw.ucv(), will identify different bandwidths as optimal
+# Consequently the number (and position) of modes may differ too
+
+# Methods implemented in multimode are documented at ?bw.nrd
+
+# Calculate number of modes
+n <- nmodes(ocme_2020$Age, bw = bandwidth)
+
+# Calculate location of these modes
+loc <- locmodes(ocme_2020$Age, mod0 = n)
+# Remove `, display = TRUE` if you don't want to see the KDE
+#loc
+
+# Locations of modes are odd values in loc
+modes <- loc$locations[seq(from = 1, by = 2, length.out = n)]
+
+
+#added multiple mode lines to plot using https://stackoverflow.com/questions/71580196/add-horizontal-lines-from-a-vector-to-a-ggplot-uisng-facet-grid
+
+
+# a plot without mode lines or anything, with the number of people dying for each age 
+ggplot(data=ocme_2020, aes(x=Age, ..count..)) + 
+      geom_bar(aes(fill = as.character(Age)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 90), breaks = ocme_2020$Age, labels = ocme_2020$Age) + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black", size = 7/.pt) + theme_light() + ggtitle("Age distribution for 2020 opioid-detected deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 7))
+
+age_2020 <- ggplot(data=ocme_2020, aes(x=Age, ..count..)) + 
+      geom_bar(aes(fill = as.character(Age)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 90), breaks = ocme_2020$Age, labels = ocme_2020$Age) + theme_light() + geom_vline(xintercept = modes, size=1) + ggtitle("Age distribution for 2020 opioid-detected deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 7))
+
+age_2020
+
+ggsave(plot=age_2020, filename = "images/statewide/age_2020.png", width = 10, height = 8)
+
+```
+
+
+#### 2021
+
+```{r age2021, echo=FALSE, message=FALSE, warning=FALSE}
+#there was an issue with the x axis not showing up when I coped the other histogram code -- resolved using https://stackoverflow.com/questions/42425195/ggplot-data-year-over-year-axis-labels-not-showing
+
+#fixed issue with colors not showing -- turns out it was because the data was numeric: https://stackoverflow.com/questions/55400037/ggplot-geom-bar-fill-not-coloring-bars-on-plot
+
+#calculate modes, see https://stackoverflow.com/questions/27418461/calculate-the-modes-in-a-multimodal-distribution-in-r
+
+# Select an appropriate bandwidth. Here we use a "rule of thumb" method
+bandwidth <- bw.nrd0(ocme_2021$Age) 
+
+# Other methods, e.g. bw.ucv(), will identify different bandwidths as optimal
+# Consequently the number (and position) of modes may differ too
+
+# Methods implemented in multimode are documented at ?bw.nrd
+
+# Calculate number of modes
+n <- nmodes(ocme_2021$Age, bw = bandwidth)
+
+# Calculate location of these modes
+loc <- locmodes(ocme_2021$Age, mod0 = n)
+# Remove `, display = TRUE` if you don't want to see the KDE
+#loc
+
+# Locations of modes are odd values in loc
+modes <- loc$locations[seq(from = 1, by = 2, length.out = n)]
+
+
+#added multiple mode lines to plot using https://stackoverflow.com/questions/71580196/add-horizontal-lines-from-a-vector-to-a-ggplot-uisng-facet-grid
+
+
+# a plot without mode lines or anything, with the number of people dying for each age 
+ggplot(data=ocme_2021, aes(x=Age, ..count..)) + 
+      geom_bar(aes(fill = as.character(Age)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 90), breaks = ocme_2021$Age, labels = ocme_2021$Age) + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black", size = 7/.pt) + theme_light() + ggtitle("Age distribution for 2021 opioid-detected deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 7))
+
+age_2021 <- ggplot(data=ocme_2021, aes(x=Age, ..count..)) + 
+      geom_bar(aes(fill = as.character(Age)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 90), breaks = ocme_2021$Age, labels = ocme_2021$Age) + theme_light() + geom_vline(xintercept = modes, size=1) + ggtitle("Age distribution for 2021 opioid-detected deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 7))
+age_2021
+
+ggsave(plot=age_2021, filename = "images/statewide/age_2021.png", width = 10, height = 8)
+ 
+```
+
+
+#### 2022
+
+```{r age2022, echo=FALSE, message=FALSE, warning=FALSE}
+#there was an issue with the x axis not showing up when I coped the other histogram code -- resolved using https://stackoverflow.com/questions/42425195/ggplot-data-year-over-year-axis-labels-not-showing
+
+#fixed issue with colors not showing -- turns out it was because the data was numeric: https://stackoverflow.com/questions/55400037/ggplot-geom-bar-fill-not-coloring-bars-on-plot
+
+#calculate modes, see https://stackoverflow.com/questions/27418461/calculate-the-modes-in-a-multimodal-distribution-in-r
+
+# Select an appropriate bandwidth. Here we use a "rule of thumb" method
+bandwidth <- bw.nrd0(ocme_2022$Age) 
+
+# Other methods, e.g. bw.ucv(), will identify different bandwidths as optimal
+# Consequently the number (and position) of modes may differ too
+
+# Methods implemented in multimode are documented at ?bw.nrd
+
+# Calculate number of modes
+n <- nmodes(ocme_2022$Age, bw = bandwidth)
+
+# Calculate location of these modes
+loc <- locmodes(ocme_2022$Age, mod0 = n)
+# Remove `, display = TRUE` if you don't want to see the KDE
+#loc
+
+# Locations of modes are odd values in loc
+modes <- loc$locations[seq(from = 1, by = 2, length.out = n)]
+
+
+#added multiple mode lines to plot using https://stackoverflow.com/questions/71580196/add-horizontal-lines-from-a-vector-to-a-ggplot-uisng-facet-grid
+
+
+# a plot without mode lines or anything, with the number of people dying for each age 
+ggplot(data=ocme_2022, aes(x=Age, ..count..)) + 
+      geom_bar(aes(fill = as.character(Age)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 90), breaks = ocme_2022$Age, labels = ocme_2022$Age) + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black", size = 7/.pt) + theme_light() + ggtitle("Age distribution for 2022 opioid-detected deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 7))
+
+age_2022 <- ggplot(data=ocme_2022, aes(x=Age, ..count..)) + 
+      geom_bar(aes(fill = as.character(Age)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 90), breaks = ocme_2022$Age, labels = ocme_2022$Age) + theme_light() + geom_vline(xintercept = modes[-length(modes)], size=1) + ggtitle("Age distribution for 2022 opioid-detected deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 7))
+age_2022
+
+
+ggsave(plot=age_2022, filename = "images/statewide/age_2022.png", width = 10, height = 8)
+ 
+```
+
+### Day of week {.tabset}
+
+#### 2018
+
+```{r week2018, echo=FALSE, message=FALSE, warning=FALSE}
+#table(ocme_2018$month)
+
+# ordering of variables on x axis from https://www.statology.org/ggplot-order-x-axis/
+# make sure to use scale_x_discrete!
+
+weekday_2018 <- ggplot(data=ocme_2018, aes(x=factor(Weekday, level=c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")), ..count..)) + geom_bar(aes(fill = as.character(Weekday)), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 0), breaks = ocme_2018$Weekday, labels = ocme_2018$Weekday) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black") + ggtitle("ODs per weekday for 2018 opioid-detected deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 7))+xlab("Weekday")
+
+weekday_2018
+
+ggsave(plot=weekday_2018, filename = "images/statewide/weekday_2018.png", width = 10, height = 8)
+
+```
+
+#### 2019
+
+```{r week2019, echo=FALSE, message=FALSE, warning=FALSE}
+#table(ocme_2019$Month)
+
+weekday_2019 <- ggplot(data=ocme_2019, aes(x=factor(Weekday, level=c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")), ..count..)) + geom_bar(aes(fill = as.character(Weekday)), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 0), breaks = ocme_2019$Weekday, labels = ocme_2019$Weekday) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black") + ggtitle("ODs per weekday for 2019 opioid-detected deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 7))+xlab("Weekday")
+
+weekday_2019
+
+ggsave(plot=weekday_2019, filename = "images/statewide/weekday_2019.png", width = 10, height = 8)
+
+```
+
+#### 2020
+
+```{r week2020, echo=FALSE, message=FALSE, warning=FALSE}
+weekday_2020 <- ggplot(data=ocme_2020, aes(x=factor(Weekday, level=c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")), ..count..)) + geom_bar(aes(fill = as.character(Weekday)), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 0), breaks = ocme_2020$Weekday, labels = ocme_2020$Weekday) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black") + ggtitle("ODs per weekday for 2020 opioid-detected deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 7))+xlab("Weekday")
+
+weekday_2020
+
+ggsave(plot=weekday_2020, filename = "images/statewide/weekday_2020.png", width = 10, height = 8)
+
+```
+
+
+#### 2021
+
+```{r week2021, echo=FALSE, message=FALSE, warning=FALSE}
+#table(ocme_2021$Month)
+
+weekday_2021 <- ggplot(data=ocme_2021, aes(x=factor(Weekday, level=c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")), ..count..)) + geom_bar(aes(fill = as.character(Weekday)), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 0), breaks = ocme_2021$Weekday, labels = ocme_2021$Weekday) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black") + ggtitle("ODs per weekday for 2021 opioid-detected deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 7))+xlab("Weekday")
+
+weekday_2021
+
+ggsave(plot=weekday_2021, filename = "images/statewide/weekday_2021.png", width = 10, height = 8)
+
+```
+
+
+#### 2022
+
+```{r week2022, echo=FALSE, message=FALSE, warning=FALSE}
+
+weekday_2022 <- ggplot(data=ocme_2022, aes(x=factor(Weekday, level=c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")), ..count..)) + geom_bar(aes(fill = as.character(Weekday)), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 0), breaks = ocme_2022$Weekday, labels = ocme_2022$Weekday) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black") + ggtitle("ODs per weekday for 2022 opioid-detected deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 7))+xlab("Weekday")
+
+weekday_2022
+
+ggsave(plot=weekday_2022, filename = "images/statewide/weekday_2022.png", width = 10, height = 8)
+
+```
+
+
+### Month {.tabset}
+
+#### 2018
+
+```{r month2018, echo=FALSE, message=FALSE, warning=FALSE}
+#table(ocme_2018$month)
+
+month_2018 <- ggplot(data=ocme_2018, aes(x=month, ..count..)) + geom_bar(aes(fill = as.character(month)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 0), breaks = ocme_2018$month, labels = ocme_2018$month) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black") + ggtitle("ODs per month for 2018 opioid-detected deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 7))
+
+month_2018
+
+ggsave(plot=month_2018, filename = "images/statewide/month_2018.png", width = 10, height = 8)
+
+```
+
+#### 2019
+
+```{r month2019, echo=FALSE, message=FALSE, warning=FALSE}
+#table(ocme_2019$Month)
+
+month_2019 <- ggplot(data=ocme_2019, aes(x=Month, ..count..)) + geom_bar(aes(fill = as.character(Month)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 0), breaks = ocme_2019$Month, labels = ocme_2019$Month) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black") + ggtitle("ODs per month for 2019 opioid-detected deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 7))
+
+month_2019
+
+ggsave(plot=month_2019, filename = "images/statewide/month_2019.png", width = 10, height = 8)
+
+```
+
+#### 2020
+
+```{r month2020, echo=FALSE, message=FALSE, warning=FALSE}
+month_2020 <- ggplot(data=ocme_2020, aes(x=Month, ..count..)) + geom_bar(aes(fill = as.character(Month)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 0), breaks = ocme_2020$Month, labels = ocme_2020$Month) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black") + ggtitle("ODs per month for 2020 opioid-detected deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 7))
+
+month_2020
+
+ggsave(plot=month_2020, filename = "images/statewide/month_2020.png", width = 10, height = 8)
+
+```
+
+
+#### 2021
+
+```{r month2021, echo=FALSE, message=FALSE, warning=FALSE}
+#table(ocme_2021$Month)
+
+month_2021 <- ggplot(data=ocme_2021, aes(x=Month, ..count..)) + geom_bar(aes(fill = as.character(Month)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 0), breaks = ocme_2021$Month, labels = ocme_2021$Month) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black") + ggtitle("ODs per month for 2021 opioid-detected deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 7))
+
+month_2021
+
+ggsave(plot=month_2021, filename = "images/statewide/month_2021.png", width = 10, height = 8)
+
+```
+
+
+#### 2022
+
+```{r month2022, echo=FALSE, message=FALSE, warning=FALSE}
+
+month_2022 <- ggplot(data=ocme_2022, aes(x=Month, ..count..)) + geom_bar(aes(fill = as.character(Month)), position = "dodge") + scale_x_continuous(guide = guide_axis(angle = 0), breaks = ocme_2022$Month, labels = ocme_2022$Month) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black") + ggtitle("ODs per month for 2022 opioid-detected deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 7))
+
+month_2022
+
+ggsave(plot=month_2022, filename = "images/statewide/month_2022.png", width = 10, height = 8)
+
+```
+
+### Town of OD {.tabset}
+
+#### 2018
+
+
+```{r town2018, echo=FALSE, message=FALSE, warning=FALSE}
+#table(ocme_2018$injury_city_updated)
+
+ocme_2018$fatal <- 1
+
+# turn "" into "Unknown" so we can plot it, and convert Willimantic to Windham because it messes up the out-of-town calculations otherwise
+
+ocme_2018$injury_city_revised <- ifelse(ocme_2018$injury_city_updated == "", "Unknown", ifelse(ocme_2018$injury_city_updated == "Willimantic", "Windham", ocme_2018$injury_city_updated))
+
+#fixed axis text size in theme() using https://stackoverflow.com/questions/65956833/ggplot2-how-to-dynamically-wrap-resize-rescale-x-axis-labels-so-they-wont-over
+
+town_2018 <- ggplot(data=ocme_2018, aes(x=injury_city_revised, ..count..)) + 
+      geom_bar(aes(fill = ..count..), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "red", size = 3/.pt) + ggtitle("City/town of OD for 2018 opioid-detected deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 3))
+
+town_2018
+
+ggsave(plot=town_2018, filename = "images/statewide/overdoses_by_town_2018.png", width = 10, height = 8)
+
+#find the number of ODs in each town by aggregating the indicator var for each town, from https://stackoverflow.com/questions/60961960/how-do-i-sum-a-column-with-categorical-vairables-in-r
+
+ocme_2018_counts <- ocme_2018 %>% group_by(injury_city_revised) %>% summarise_at(vars(fatal), sum)
+
+# rename the town_pop_2020 column names to be more descriptive--"NAME" is so we can map it easily
+
+colnames(city_pop_2018) <- c('Town', 'Pop')
+
+# rename the injury county variable so we can merge it with the county_pop_2020 df
+
+colnames(ocme_2018_counts) <- c('Town', 'Fatal')
+
+#merge with ct_towns so that way we can use the fatal OD counts for the fill
+
+ct_town_odcounts_2018 <- merge(city_pop_2018, ocme_2018_counts,by="Town")
+
+# get the per-capita death rate, multiply by 10000 so the numbers aren't super small
+ct_town_odcounts_2018$Prop <- round((ct_town_odcounts_2018$Fatal/ct_town_odcounts_2018$Pop)*10000, digits=2)
+
+# Plot the per-capita death rate
+# had an issue with the fill, edited with http://www.sthda.com/english/wiki/ggplot2-barplots-quick-start-guide-r-software-and-data-visualization
+# needed to change the font size for the text overlay, used https://stackoverflow.com/questions/25061822/ggplot-geom-text-font-size-control
+
+town_2018_capita <- ggplot(data=ct_town_odcounts_2018, aes(x=Town, y=Prop, fill=Prop, position = "dodge")) + 
+      geom_bar(stat="Identity") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = Prop), vjust = 0, colour = "red", size = 3/.pt) + ggtitle("Town of OD for 2018 opioid-detected deaths \n per 10000 residents")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 3))
+
+town_2018_capita
+
+ggsave(plot=town_2018_capita, filename = "images/statewide/overdoses_by_town_capita_2018.png", width = 10, height = 8)
+ 
+```
+
+#### 2019
+
+
+```{r town2019, echo=FALSE, message=FALSE, warning=FALSE}
+#table(ocme_2019$Injury.City)
+
+ocme_2019$fatal <- 1
+
+ocme_2019$injury_city_revised <- ifelse(ocme_2019$Injury.City == "", "Unknown", ifelse(ocme_2019$Injury.City == "Willimantic", "Windham", ocme_2019$Injury.City))
+
+#fixed axis text size in theme() using https://stackoverflow.com/questions/65956833/ggplot2-how-to-dynamically-wrap-resize-rescale-x-axis-labels-so-they-wont-over
+
+town_2019 <- ggplot(data=ocme_2019, aes(x=injury_city_revised, ..count..)) + 
+      geom_bar(aes(fill = ..count..), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "red", size = 3/.pt) + ggtitle("City/town of OD for 2019 opioid-detected deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 3))
+
+town_2019
+
+ggsave(plot=town_2019, filename = "images/statewide/overdoses_by_town_2019.png", width = 10, height = 8)
+
+#find the number of ODs in each town by aggregating the indicator var for each town, from https://stackoverflow.com/questions/60961960/how-do-i-sum-a-column-with-categorical-vairables-in-r
+
+ocme_2019_counts <- ocme_2019 %>% group_by(Injury.City) %>% summarise_at(vars(fatal), sum)
+
+# rename the town_pop_2020 column names to be more descriptive--"NAME" is so we can map it easily
+
+colnames(city_pop_2019) <- c('Town', 'Pop')
+
+# rename the injury county variable so we can merge it with the county_pop_2020 df
+
+colnames(ocme_2019_counts) <- c('Town', 'Fatal')
+
+#merge with ct_towns so that way we can use the fatal OD counts for the fill
+
+ct_town_odcounts_2019 <- merge(city_pop_2019, ocme_2019_counts,by="Town")
+
+# get the per-capita death rate, multiply by 10000 so the numbers aren't super small
+ct_town_odcounts_2019$Prop <- round((ct_town_odcounts_2019$Fatal/ct_town_odcounts_2019$Pop)*10000, digits=2)
+
+# Plot the per-capita death rate
+# had an issue with the fill, edited with http://www.sthda.com/english/wiki/ggplot2-barplots-quick-start-guide-r-software-and-data-visualization
+# needed to change the font size for the text overlay, used https://stackoverflow.com/questions/25061822/ggplot-geom-text-font-size-control
+
+town_2019_capita <- ggplot(data=ct_town_odcounts_2019, aes(x=Town, y=Prop, fill=Prop, position = "dodge")) + 
+      geom_bar(stat="Identity") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = Prop), vjust = 0, colour = "red", size = 3/.pt) + ggtitle("Town of OD for 2019 opioid-detected deaths \n per 10000 residents")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 3))
+
+town_2019_capita
+
+ggsave(plot=town_2019_capita, filename = "images/statewide/overdoses_by_town_capita_2019.png", width = 10, height = 8)
+```
+
+#### 2020
+
+
+
+```{r town2020, echo=FALSE, message=FALSE, warning=FALSE}
+#table(ocme_2020$Injury.City)
+
+ocme_2020$fatal <- 1
+
+ocme_2020$injury_city_revised <- ifelse(ocme_2020$Injury.City == "", "Unknown", ifelse(ocme_2020$Injury.City == "Willimantic", "Windham", ocme_2020$Injury.City))
+
+#fixed axis text size in theme() using https://stackoverflow.com/questions/65956833/ggplot2-how-to-dynamically-wrap-resize-rescale-x-axis-labels-so-they-wont-over
+
+town_2020 <- ggplot(data=ocme_2020, aes(x=injury_city_revised, ..count..)) + 
+      geom_bar(aes(fill = ..count..), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "red", size = 3/.pt)  + ggtitle("City/town of OD for 2020 opioid-detected deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 3))
+
+town_2020
+
+ggsave(plot=town_2020, filename = "images/statewide/overdoses_by_town_2020.png", width = 10, height = 8)
+
+
+#find the number of ODs in each town by aggregating the indicator var for each town, from https://stackoverflow.com/questions/60961960/how-do-i-sum-a-column-with-categorical-vairables-in-r
+
+ocme_2020_counts <- ocme_2020 %>% group_by(Injury.City) %>% summarise_at(vars(fatal), sum)
+
+# rename the town_pop_2020 column names to be more descriptive--"NAME" is so we can map it easily
+
+colnames(city_pop_2020) <- c('Town', 'Pop')
+
+# rename the injury county variable so we can merge it with the county_pop_2020 df
+
+colnames(ocme_2020_counts) <- c('Town', 'Fatal')
+
+#merge with ct_towns so that way we can use the fatal OD counts for the fill
+
+ct_town_odcounts_2020 <- merge(city_pop_2020, ocme_2020_counts,by="Town")
+
+# get the per-capita death rate, multiply by 10000 so the numbers aren't super small
+ct_town_odcounts_2020$Prop <- round((ct_town_odcounts_2020$Fatal/ct_town_odcounts_2020$Pop)*10000, digits=2)
+
+# not all towns experienced an OD in 2020. Check which: https://stackoverflow.com/questions/72274729/find-elements-in-a-column-that-is-not-in-another-column-of-another-dataframe-in
+#ocme_2020_odcounts <- data.frame(setdiff(ct_towns$NAME, ct_town_odcounts_2020$NAME), 0)
+# give this the same column names as ocme_2020_counts
+#colnames(ocme_2020_odcounts) <- c('NAME', 'Fatal', 'Prop')
+#merge the two datasets
+#ocme_2020_counts <- rbind(ocme_2020_counts, ct_town_odcounts_2020)
+
+# Plot the per-capita death rate
+# had an issue with the fill, edited with http://www.sthda.com/english/wiki/ggplot2-barplots-quick-start-guide-r-software-and-data-visualization
+# needed to change the font size for the text overlay, used https://stackoverflow.com/questions/25061822/ggplot-geom-text-font-size-control
+
+town_2020_capita <- ggplot(data=ct_town_odcounts_2020, aes(x=Town, y=Prop, fill=Prop, position = "dodge")) + 
+      geom_bar(stat="Identity") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = Prop), vjust = 0, colour = "red", size = 3/.pt) + ggtitle("Town of OD for 2020 opioid-detected deaths \n per 10000 residents")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 3))
+
+town_2020_capita
+
+ggsave(plot=town_2020_capita, filename = "images/statewide/overdoses_by_town_capita_2020.png", width = 10, height = 8)
+
+```
+
+#### 2021
+
+```{r town2021, echo=FALSE, message=FALSE, warning=FALSE}
+#table(ocme_2021$Injury.City)
+
+ocme_2021$fatal <- 1
+
+ocme_2021$injury_city_revised <- ifelse(ocme_2021$Injury.City == "", "Unknown", ifelse(ocme_2021$Injury.City == "Willimantic", "Windham", ocme_2021$Injury.City))
+
+#fixed axis text size in theme() using https://stackoverflow.com/questions/65956833/ggplot2-how-to-dynamically-wrap-resize-rescale-x-axis-labels-so-they-wont-over
+
+town_2021 <- ggplot(data=ocme_2021, aes(x=injury_city_revised, ..count..)) + 
+      geom_bar(aes(fill = ..count..), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "red", size = 3/.pt) + ggtitle("City/town of OD for 2021 opioid-detected deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 3))
+
+town_2021
+
+
+ggsave(plot=town_2021, filename = "images/statewide/overdoses_by_town_2021.png", width = 10, height = 8)
+
+#find the number of ODs in each town by aggregating the indicator var for each town, from https://stackoverflow.com/questions/60961960/how-do-i-sum-a-column-with-categorical-vairables-in-r
+
+ocme_2021_counts <- ocme_2021 %>% group_by(Injury.City) %>% summarise_at(vars(fatal), sum)
+
+# rename the town_pop_2020 column names to be more descriptive--"NAME" is so we can map it easily
+
+colnames(city_pop_2021) <- c('Town', 'Pop')
+
+# rename the injury county variable so we can merge it with the county_pop_2020 df
+
+colnames(ocme_2021_counts) <- c('Town', 'Fatal')
+
+#merge with ct_towns so that way we can use the fatal OD counts for the fill
+
+ct_town_odcounts_2021 <- merge(city_pop_2021, ocme_2021_counts,by="Town")
+
+# get the per-capita death rate, multiply by 10000 so the numbers aren't super small
+ct_town_odcounts_2021$Prop <- round((ct_town_odcounts_2021$Fatal/ct_town_odcounts_2021$Pop)*10000, digits=2)
+
+# Plot the per-capita death rate
+# had an issue with the fill, edited with http://www.sthda.com/english/wiki/ggplot2-barplots-quick-start-guide-r-software-and-data-visualization
+# needed to change the font size for the text overlay, used https://stackoverflow.com/questions/25061822/ggplot-geom-text-font-size-control
+
+town_2021_capita <- ggplot(data=ct_town_odcounts_2021, aes(x=Town, y=Prop, fill=Prop, position = "dodge")) + 
+      geom_bar(stat="Identity") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = Prop), vjust = 0, colour = "red", size = 3/.pt) + ggtitle("Town of OD for 2021 opioid-detected deaths \n per 10000 residents")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 3))
+
+town_2021_capita
+
+ggsave(plot=town_2021_capita, filename = "images/statewide/overdoses_by_town_capita_2021.png", width = 10, height = 8)
+```
+
+#### 2022
+```{r town2022, echo=FALSE, message=FALSE, warning=FALSE}
+#table(ocme_2021$Injury.City)
+
+ocme_2022$fatal <- 1
+
+ocme_2022$injury_city_revised <- ifelse(ocme_2022$Injury.City == "", "Unknown", ifelse(ocme_2022$Injury.City == "Willimantic", "Windham", ocme_2022$Injury.City))
+
+#fixed axis text size in theme() using https://stackoverflow.com/questions/65956833/ggplot2-how-to-dynamically-wrap-resize-rescale-x-axis-labels-so-they-wont-over
+
+town_2022 <- ggplot(data=ocme_2022, aes(x=injury_city_revised, ..count..)) + 
+      geom_bar(aes(fill = ..count..), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "red", size = 3/.pt) + ggtitle("City/town of OD for 2022 opioid-detected deaths")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 3))
+
+town_2022
+
+ggsave(plot=town_2022, filename = "images/statewide/overdoses_by_town_2022.png", width = 10, height = 8)
+
+#find the number of ODs in each town by aggregating the indicator var for each town, from https://stackoverflow.com/questions/60961960/how-do-i-sum-a-column-with-categorical-vairables-in-r
+
+ocme_2022_counts <- ocme_2022 %>% group_by(Injury.City) %>% summarise_at(vars(fatal), sum)
+
+# rename the town_pop_2020 column names to be more descriptive--"NAME" is so we can map it easily
+
+colnames(city_pop_2022) <- c('Town', 'Pop')
+
+# rename the injury county variable so we can merge it with the county_pop_2020 df
+
+colnames(ocme_2022_counts) <- c('Town', 'Fatal')
+
+#merge with ct_towns so that way we can use the fatal OD counts for the fill
+
+ct_town_odcounts_2022 <- merge(city_pop_2022, ocme_2022_counts,by="Town")
+
+# get the per-capita death rate, multiply by 10000 so the numbers aren't super small
+ct_town_odcounts_2022$Prop <- round((ct_town_odcounts_2022$Fatal/ct_town_odcounts_2022$Pop)*10000, digits=2)
+
+# Plot the per-capita death rate
+# had an issue with the fill, edited with http://www.sthda.com/english/wiki/ggplot2-barplots-quick-start-guide-r-software-and-data-visualization
+# needed to change the font size for the text overlay, used https://stackoverflow.com/questions/25061822/ggplot-geom-text-font-size-control
+
+town_2022_capita <- ggplot(data=ct_town_odcounts_2022, aes(x=Town, y=Prop, fill=Prop, position = "dodge")) + 
+      geom_bar(stat="Identity") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = Prop), vjust = 0, colour = "red", size = 3/.pt) + ggtitle("Town of OD for 2022 opioid-detected deaths \n per 10000 residents")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 3))
+
+town_2022_capita
+
+ggsave(plot=town_2022_capita, filename = "images/statewide/overdoses_by_town_capita_2022.png", width = 10, height = 8)
+```
+
+### Maps of OD towns {.tabset} 
+
+#### 2018
+
+```{r town2018Map, echo=FALSE, message=FALSE, warning=FALSE}
+#create an indicator variable so we can aggregate the number of ODs per city
+
+ocme_2018$fatal <- 1
+
+#find the number of ODs in each town by aggregating the indicator var for each town, from https://stackoverflow.com/questions/60961960/how-do-i-sum-a-column-with-categorical-vairables-in-r
+
+ocme_2018_counts<- ocme_2018 %>% group_by(injury_city_revised) %>% summarise_at(vars(fatal), sum)
+
+#rename the injury city variable so we can merge it with the ct_towns df
+
+colnames(ocme_2018_counts) <- c('NAME', 'Fatal')
+
+# not all towns experienced an OD in 2020. Check which: https://stackoverflow.com/questions/72274729/find-elements-in-a-column-that-is-not-in-another-column-of-another-dataframe-in
+
+ocme_2018_odcounts <- data.frame(setdiff(ct_towns$NAME, ocme_2018_counts$NAME), 0)
+
+# give this the same column names as ocme_2020_counts
+
+colnames(ocme_2018_odcounts) <- c('NAME', 'Fatal')
+
+# merge the two datasets
+
+ocme_2018_counts <- rbind(ocme_2018_counts, ocme_2018_odcounts)
+
+#merge with ct_towns so that way we can use the fatal OD counts for the fill
+
+ct_town_odcounts_2018 <- merge(ct_towns, ocme_2018_counts,by="NAME")
+
+# Plot! And use the fatal data to color the plot in. Info from https://geanders.github.io/navy_public_health/3-2-basic-mapping.html
+
+map_2018 <- ggplot(ocme_2018) + theme_void() + geom_sf(data=ct_town_odcounts_2018, size=0.1, aes(fill=Fatal))+ ggtitle("Fatal opioid-detected overdoses by town in 2018")+scale_fill_viridis_c(option="plasma")+theme(plot.title = element_text(hjust = 0.5), legend.position="right")
+
+map_2018
+
+#save this one for the presentation
+ggsave(plot=map_2018, filename = "images/statewide/map_2018.png", width = 10, height = 8)
+
+#save this one for the presentation
+ggsave(plot=map_2018, filename = "images/statewide/map_2018.png", width = 10, height = 8)
+
+```
+
+#### 2019
+
+```{r town2019Map, echo=FALSE, message=FALSE, warning=FALSE}
+#create an indicator variable so we can aggregate the number of ODs per city
+
+ocme_2019$fatal <- 1
+
+#find the number of ODs in each town by aggregating the indicator var for each town, from https://stackoverflow.com/questions/60961960/how-do-i-sum-a-column-with-categorical-vairables-in-r
+
+ocme_2019_counts<- ocme_2019 %>% group_by(injury_city_revised) %>% summarise_at(vars(fatal), sum)
+
+#rename the injury city variable so we can merge it with the ct_towns df
+
+colnames(ocme_2019_counts) <- c('NAME', 'Fatal')
+
+# not all towns experienced an OD in 2020. Check which: https://stackoverflow.com/questions/72274729/find-elements-in-a-column-that-is-not-in-another-column-of-another-dataframe-in
+
+ocme_2019_odcounts <- data.frame(setdiff(ct_towns$NAME, ocme_2019_counts$NAME), 0)
+
+# give this the same column names as ocme_2020_counts
+
+colnames(ocme_2019_odcounts) <- c('NAME', 'Fatal')
+
+# merge the two datasets
+
+ocme_2019_counts <- rbind(ocme_2019_counts, ocme_2019_odcounts)
+
+#merge with ct_towns so that way we can use the fatal OD counts for the fill
+
+ct_town_odcounts_2019 <- merge(ct_towns, ocme_2019_counts,by="NAME")
+
+# Plot! And use the fatal data to color the plot in. Info from https://geanders.github.io/navy_public_health/3-2-basic-mapping.html
+
+map_2019 <- ggplot(ocme_2019) + theme_void() + geom_sf(data=ct_town_odcounts_2019, size=0.1, aes(fill=Fatal))+ ggtitle("Fatal opioid-detected overdoses by town in 2019")+scale_fill_viridis_c(option="plasma")+theme(plot.title = element_text(hjust = 0.5), legend.position="right")
+
+map_2019
+
+#save this one for the presentation
+ggsave(plot=map_2019, filename = "images/statewide/map_2019.png", width = 10, height = 8)
+
+#save this one for the presentation
+ggsave(plot=map_2019, filename = "images/statewide/map_2019.png", width = 10, height = 8)
+
+```
+
+#### 2020
+
+```{r town2020Map, echo=FALSE, message=FALSE, warning=FALSE}
+#create an indicator variable so we can aggregate the number of ODs per city
+
+ocme_2020$fatal <- 1
+
+#find the number of ODs in each town by aggregating the indicator var for each town, from https://stackoverflow.com/questions/60961960/how-do-i-sum-a-column-with-categorical-vairables-in-r
+
+ocme_2020_counts<- ocme_2020 %>% group_by(injury_city_revised) %>% summarise_at(vars(fatal), sum)
+
+#rename the injury city variable so we can merge it with the ct_towns df
+
+colnames(ocme_2020_counts) <- c('NAME', 'Fatal')
+
+# not all towns experienced an OD in 2020. Check which: https://stackoverflow.com/questions/72274729/find-elements-in-a-column-that-is-not-in-another-column-of-another-dataframe-in
+
+ocme_2020_odcounts <- data.frame(setdiff(ct_towns$NAME, ocme_2020_counts$NAME), 0)
+
+# give this the same column names as ocme_2020_counts
+
+colnames(ocme_2020_odcounts) <- c('NAME', 'Fatal')
+
+# merge the two datasets
+
+ocme_2020_counts <- rbind(ocme_2020_counts, ocme_2020_odcounts)
+
+#merge with ct_towns so that way we can use the fatal OD counts for the fill
+
+ct_town_odcounts_2020 <- merge(ct_towns, ocme_2020_counts,by="NAME")
+
+# Plot! And use the fatal data to color the plot in. Info from https://geanders.github.io/navy_public_health/3-2-basic-mapping.html
+
+map_2020 <- ggplot(ocme_2020) + theme_void() + geom_sf(data=ct_town_odcounts_2020, size=0.1, aes(fill=Fatal))+ ggtitle("Fatal opioid-detected overdoses by town in 2020")+scale_fill_viridis_c(option="plasma")+theme(plot.title = element_text(hjust = 0.5), legend.position="right")
+
+map_2020
+
+#save this one for the presentation
+ggsave(plot=map_2020, filename = "images/statewide/map_2020.png", width = 10, height = 8)
+
+#save this one for the presentation
+ggsave(plot=map_2020, filename = "images/statewide/map_2020.png", width = 10, height = 8)
+
+```
+
+#### 2021
+
+```{r town2021Map, echo=FALSE, message=FALSE, warning=FALSE}
+#create an indicator variable so we can aggregate the number of ODs per city
+
+ocme_2021$fatal <- 1
+
+#find the number of ODs in each town by aggregating the indicator var for each town, from https://stackoverflow.com/questions/60961960/how-do-i-sum-a-column-with-categorical-vairables-in-r
+
+ocme_2021_counts<- ocme_2021 %>% group_by(injury_city_revised) %>% summarise_at(vars(fatal), sum)
+
+#rename the injury city variable so we can merge it with the ct_towns df
+
+colnames(ocme_2021_counts) <- c('NAME', 'Fatal')
+
+# not all towns experienced an OD in 2020. Check which: https://stackoverflow.com/questions/72274729/find-elements-in-a-column-that-is-not-in-another-column-of-another-dataframe-in
+
+ocme_2021_odcounts <- data.frame(setdiff(ct_towns$NAME, ocme_2021_counts$NAME), 0)
+
+# give this the same column names as ocme_2020_counts
+
+colnames(ocme_2021_odcounts) <- c('NAME', 'Fatal')
+
+# merge the two datasets
+
+ocme_2021_counts <- rbind(ocme_2021_counts, ocme_2021_odcounts)
+
+#merge with ct_towns so that way we can use the fatal OD counts for the fill
+
+ct_town_odcounts_2021 <- merge(ct_towns, ocme_2021_counts,by="NAME")
+
+# Plot! And use the fatal data to color the plot in. Info from https://geanders.github.io/navy_public_health/3-2-basic-mapping.html
+
+map_2021<- ggplot(ocme_2021) + theme_void() + geom_sf(data=ct_town_odcounts_2021, size=0.1, aes(fill=Fatal))+ ggtitle("Fatal opioid-detected overdoses by town in 2021")+scale_fill_viridis_c(option="plasma")+theme(plot.title = element_text(hjust = 0.5), legend.position="right")
+
+map_2021
+
+#save this one for the presentation
+ggsave(plot=map_2021, filename = "images/statewide/map_2021.png", width = 10, height = 8)
+
+#save this one for the presentation
+ggsave(plot=map_2021, filename = "images/statewide/map_2021.png", width = 10, height = 8)
+```
+
+#### 2022 {.tabset}
+
+```{r town2022Map, echo=FALSE, message=FALSE, warning=FALSE}
+#create an indicator variable so we can aggregate the number of ODs per city
+
+ocme_2022$fatal <- 1
+
+#find the number of ODs in each town by aggregating the indicator var for each town, from https://stackoverflow.com/questions/60961960/how-do-i-sum-a-column-with-categorical-vairables-in-r
+
+ocme_2022_counts<- ocme_2022 %>% group_by(injury_city_revised) %>% summarise_at(vars(fatal), sum)
+
+#rename the injury city variable so we can merge it with the ct_towns df
+
+colnames(ocme_2022_counts) <- c('NAME', 'Fatal')
+
+# not all towns experienced an OD in 2020. Check which: https://stackoverflow.com/questions/72274729/find-elements-in-a-column-that-is-not-in-another-column-of-another-dataframe-in
+
+ocme_2022_odcounts <- data.frame(setdiff(ct_towns$NAME, ocme_2022_counts$NAME), 0)
+
+# give this the same column names as ocme_2020_counts
+
+colnames(ocme_2022_odcounts) <- c('NAME', 'Fatal')
+
+# merge the two datasets
+
+ocme_2022_counts <- rbind(ocme_2022_counts, ocme_2022_odcounts)
+
+#merge with ct_towns so that way we can use the fatal OD counts for the fill
+
+ct_town_odcounts_2022 <- merge(ct_towns, ocme_2022_counts,by="NAME")
+
+# Plot! And use the fatal data to color the plot in. Info from https://geanders.github.io/navy_public_health/3-2-basic-mapping.html
+
+map_2022 <- ggplot(ocme_2022) + theme_void() + geom_sf(data=ct_town_odcounts_2022, size=0.1, aes(fill=Fatal))+ ggtitle("Fatal opioid-detected overdoses by town in 2022")+scale_fill_viridis_c(option="plasma")+theme(plot.title = element_text(hjust = 0.5), legend.position="right")
+
+map_2022
+
+#save this one for the presentation
+ggsave(plot=map_2022, filename = "images/statewide/map_2022.png", width = 10, height = 8)
+
+#save this one for the presentation
+ggsave(plot=map_2022, filename = "images/statewide/map_2022.png", width = 10, height = 8)
+
+```
+
+### Injury town v. residence town {.tabset}
+
+I chose towns based on either what regional harm reduction workers wanted, based on towns with overdose prevention infrastructure or based on towns with the most ODs in the past few years. I can change this easily to show all towns. I'm looking at instances where people who OD'd in a town didn't live there -- I am referring to this as "out-of-town ODs."
+
+#### 2018
+
+```{r injuryResidence2018, echo=FALSE, message=FALSE, warning=FALSE}
+# get rid of blank/unknown injury and residence locations, from https://www.r-bloggers.com/2022/05/subsetting-with-multiple-conditions-in-r/
+
+ocme_2018_noblank <- ocme_2018 %>% filter(residence_city_updated != "" & injury_city_revised!="Unknown")
+
+# convert all Willimantic residences to Windham, because otherwise the out of town calculations get messed up
+ocme_2018_noblank$residence_city_updated <- ifelse(ocme_2018_noblank$residence_city_updated == "Willimantic", "Windham", ocme_2018_noblank$residence_city_updated)
+
+# print a statement with some function output -- from https://stackoverflow.com/questions/13036649/how-do-i-concatenate-string-and-an-output-evaluated-from-a-function-in-r [the %d stands for an integer]
+
+sprintf("There were %d instances where a person's residence town didn't match up with their injury town, out of %d ODs in 2018 where the injury and residence town were both known. This is %f of all such ODs in this year.", nrow(subset(ocme_2018_noblank, residence_city_updated != injury_city_revised)), nrow(ocme_2018_noblank), nrow(subset(ocme_2018_noblank, residence_city_updated != injury_city_revised))/nrow(ocme_2018_noblank))
+
+#print("Here are the towns where someone OD'd but didn't live there:")
+
+#table(subset(ocme_2018_noblank, residence_city_updated != injury_city_revised)$injury_city_revised)
+
+print("Here's a more in-depth look at out-of-town ODs in specific towns:")
+
+# initialize empty matrix, from https://stackoverflow.com/questions/32712301/create-empty-data-frame-with-column-names-by-assigning-a-string-vector
+
+out_of_town_2018 <- data.frame(matrix(ncol = 4, nrow = 0))
+cols <- c("Town name","Out-of-town ODs","Total ODs","Percent of out-of-town ODs")
+
+# iteratively add info from these towns to the df, from https://www.projectpro.io/recipes/append-output-from-for-loop-dataframe-r
+
+for (i in c("Danbury", "Waterbury", "Torrington", "New Haven", "West Haven", "Hartford", "Norwich", "New London", "Bridgeport", "New Britain", "Litchfield", "Meriden", "Norwalk", "Stamford", "Windham")) {
+  
+  # subset for the number of ODs in that town 
+  
+  ocme_injury_2018 <- subset(ocme_2018_noblank, injury_city_revised == i)
+  
+  # create a results vector to append to out_of_town 2020 df
+  # contains town name, number of ODs from out of town residents, total ODs and fraction of out of town ODs in that   order
+  
+  results <- c(i, nrow(subset(ocme_injury_2018, residence_city_updated != injury_city_revised)), nrow(ocme_injury_2018), round(nrow(subset(ocme_injury_2018, residence_city_updated != injury_city_revised))/nrow(ocme_injury_2018), 3)*100)
+
+  # add this to the out of town df 
+  out_of_town_2018 = rbind(out_of_town_2018, results)
+}
+
+# for some reason it doesn't work if I do this before adding rows?
+colnames(out_of_town_2018) <- cols
+
+out_of_town_2018
+
+```
+
+
+#### 2019
+
+```{r injuryResidence2019, echo=FALSE, message=FALSE, warning=FALSE}
+
+# get rid of blank/unknown injury and residence locations, from https://www.r-bloggers.com/2022/05/subsetting-with-multiple-conditions-in-r/
+
+ocme_2019_noblank <- ocme_2019 %>% filter(Residence.City != "" & injury_city_revised!="Unknown")
+
+# convert all Willimantic residences to Windham, because otherwise the out of town calculations get messed up
+ocme_2019_noblank$Residence.City <- ifelse(ocme_2019_noblank$Residence.City == "Willimantic", "Windham", ocme_2019_noblank$Residence.City)
+
+# print a statement with some function output -- from https://stackoverflow.com/questions/13036649/how-do-i-concatenate-string-and-an-output-evaluated-from-a-function-in-r [the %d stands for an integer]
+sprintf("There were %d instances where a person's residence town didn't match up with their injury town, out of %d ODs in 2019 where the injury and residence town were both known. This is %f of all such ODs in this year.", nrow(subset(ocme_2019_noblank, Residence.City != injury_city_revised)), nrow(ocme_2019_noblank), nrow(subset(ocme_2019_noblank, Residence.City != injury_city_revised))/nrow(ocme_2019_noblank))
+
+#print("Here are the towns where someone OD'd but didn't live there:")
+
+#table(subset(ocme_2019_noblank, Residence.City != injury_city_revised)$injury_city_revised)
+
+
+print("Here's a more in-depth look at out-of-town ODs in specific towns:")
+
+# initialize empty matrix, from https://stackoverflow.com/questions/32712301/create-empty-data-frame-with-column-names-by-assigning-a-string-vector
+
+out_of_town_2019 <- data.frame(matrix(ncol = 4, nrow = 0))
+cols <- c("Town name","Out-of-town ODs","Total ODs","Percent of out-of-town ODs")
+
+# iteratively add info from these towns to the df, from https://www.projectpro.io/recipes/append-output-from-for-loop-dataframe-r
+
+for (i in c("Danbury", "Waterbury", "Torrington", "New Haven", "West Haven", "Hartford", "Norwich", "New London", "Bridgeport", "New Britain", "Litchfield", "Meriden", "Norwalk", "Stamford", "Windham")) {
+  
+  # subset for the number of ODs in that town 
+  
+  ocme_injury_2019 <- subset(ocme_2019_noblank, injury_city_revised == i)
+  
+  # create a results vector to append to out_of_town 2020 df
+  # contains town name, number of ODs from out of town residents, total ODs and fraction of out of town ODs in that   order
+  
+  results <- c(i, nrow(subset(ocme_injury_2019, Residence.City != injury_city_revised)), nrow(ocme_injury_2019), round(nrow(subset(ocme_injury_2019, Residence.City != injury_city_revised))/nrow(ocme_injury_2019), 3)*100)
+
+  # add this to the out of town df 
+  out_of_town_2019 = rbind(out_of_town_2019, results)
+}
+
+# for some reason it doesn't work if I do this before adding rows?
+colnames(out_of_town_2019) <- cols
+
+out_of_town_2019
+
+```
+
+
+#### 2020
+
+
+```{r injuryResidence2020, echo=FALSE, message=FALSE, warning=FALSE}
+# get rid of blank/unknown injury and residence locations, from https://www.r-bloggers.com/2022/05/subsetting-with-multiple-conditions-in-r/
+
+ocme_2020_noblank <- ocme_2020 %>% filter(Residence.City != "" & injury_city_revised!="Unknown")
+
+# convert all Willimantic residences to Windham, because otherwise the out of town calculations get messed up
+ocme_2020_noblank$Residence.City <- ifelse(ocme_2020_noblank$Residence.City == "Willimantic", "Windham", ocme_2020_noblank$Residence.City)
+
+# print a statement with some function output -- from https://stackoverflow.com/questions/13036649/how-do-i-concatenate-string-and-an-output-evaluated-from-a-function-in-r [the %d stands for an integer]
+sprintf("There were %d instances where a person's residence town didn't match up with their injury town, out of %d ODs in 2020 where the injury and residence town were both known. This is %f of all such ODs in this year.", nrow(subset(ocme_2020_noblank, Residence.City != injury_city_revised)), nrow(ocme_2020_noblank), nrow(subset(ocme_2020_noblank, Residence.City != injury_city_revised))/nrow(ocme_2020_noblank))
+
+#print("Here are the towns where someone OD'd but didn't live there:")
+
+#table(subset(ocme_2020_noblank, Residence.City != injury_city_revised)$injury_city_revised)
+
+print("Here's a more in-depth look at out-of-town ODs in specific towns:")
+
+# initialize empty matrix, from https://stackoverflow.com/questions/32712301/create-empty-data-frame-with-column-names-by-assigning-a-string-vector
+
+out_of_town_2020 <- data.frame(matrix(ncol = 4, nrow = 0))
+cols <- c("Town name","Out-of-town ODs","Total ODs","Percent of out-of-town ODs")
+
+# iteratively add info from these towns to the df, from https://www.projectpro.io/recipes/append-output-from-for-loop-dataframe-r
+
+for (i in c("Danbury", "Waterbury", "Torrington", "New Haven", "West Haven", "Hartford", "Norwich", "New London", "Bridgeport", "New Britain", "Litchfield", "Meriden", "Norwalk", "Stamford", "Windham")) {
+  
+  # subset for the number of ODs in that town 
+  
+  ocme_injury_2020 <- subset(ocme_2020_noblank, injury_city_revised == i)
+  
+  # create a results vector to append to out_of_town 2020 df
+  # contains town name, number of ODs from out of town residents, total ODs and fraction of out of town ODs in that   order
+  
+  results <- c(i, nrow(subset(ocme_injury_2020, Residence.City != injury_city_revised)), nrow(ocme_injury_2020), round(nrow(subset(ocme_injury_2020, Residence.City != injury_city_revised))/nrow(ocme_injury_2020), 3)*100)
+
+  # add this to the out of town df 
+  out_of_town_2020 = rbind(out_of_town_2020, results)
+}
+
+# for some reason it doesn't work if I do this before adding rows?
+colnames(out_of_town_2020) <- cols
+
+out_of_town_2020
+
+```
+
+#### 2021
+
+```{r injuryResidence2021, echo=FALSE, message=FALSE, warning=FALSE}
+# get rid of blank/unknown injury and residence locations, from https://www.r-bloggers.com/2022/05/subsetting-with-multiple-conditions-in-r/ 
+# to get rid of people who aren't CT residents add in  & !(ct_residence.2.HOMELESS.777.UNK %in% c("0", "777"))
+
+ocme_2021_noblank <- ocme_2021 %>% filter(Res.City != "" & injury_city_revised!="Unknown")
+
+# convert all Willimantic residences to Windham, because otherwise the out of town calculations get messed up
+ocme_2021_noblank$Res.City <- ifelse(ocme_2021_noblank$Res.City == "Willimantic", "Windham", ocme_2021_noblank$Res.City)
+
+# print a statement with some function output -- from https://stackoverflow.com/questions/13036649/how-do-i-concatenate-string-and-an-output-evaluated-from-a-function-in-r [the %d stands for an integer]
+sprintf("There were %d instances where a person's residence town didn't match up with their injury town, out of %d ODs in 2021 where the injury and residence town were both known. This is %f of all such ODs in this year.", nrow(subset(ocme_2021_noblank, Res.City != injury_city_revised)), nrow(ocme_2021_noblank), nrow(subset(ocme_2021_noblank, Res.City != injury_city_revised))/nrow(ocme_2021_noblank))
+
+#print("Here are the towns where someone OD'd but didn't live there:")
+
+#table(subset(ocme_2021_noblank, Res.City != injury_city_revised)$injury_city_revised)
+
+print("Here's a more in-depth look at out-of-town ODs in specific towns:")
+
+# initialize empty matrix, from https://stackoverflow.com/questions/32712301/create-empty-data-frame-with-column-names-by-assigning-a-string-vector
+
+out_of_town_2021 <- data.frame(matrix(ncol = 4, nrow = 0))
+cols <- c("Town name","Out-of-town ODs","Total ODs","Percent of out-of-town ODs")
+
+# iteratively add info from these towns to the df, from https://www.projectpro.io/recipes/append-output-from-for-loop-dataframe-r
+
+for (i in c("Danbury", "Waterbury", "Torrington", "New Haven", "West Haven", "Hartford", "Norwich", "New London", "Bridgeport", "New Britain", "Litchfield", "Meriden", "Norwalk", "Stamford", "Windham")) {
+  
+  # subset for the number of ODs in that town 
+  
+  ocme_injury_2021 <- subset(ocme_2021_noblank, injury_city_revised == i)
+  
+  # create a results vector to append to out_of_town 2020 df
+  # contains town name, number of ODs from out of town residents, total ODs and fraction of out of town ODs in that   order
+  
+  results <- c(i, nrow(subset(ocme_injury_2021, Res.City != injury_city_revised)), nrow(ocme_injury_2021), round(nrow(subset(ocme_injury_2021, Res.City != injury_city_revised))/nrow(ocme_injury_2021), 3)*100)
+
+  # add this to the out of town df 
+  out_of_town_2021 = rbind(out_of_town_2021, results)
+}
+
+# for some reason it doesn't work if I do this before adding rows?
+colnames(out_of_town_2021) <- cols
+
+out_of_town_2021
+```
+
+
+#### 2022
+
+```{r injuryResidence2022, echo=FALSE, message=FALSE, warning=FALSE}
+# get rid of blank/unknown injury and residence locations, from https://www.r-bloggers.com/2022/05/subsetting-with-multiple-conditions-in-r/ -- also adding to get rid of people who aren't CT residents
+
+ocme_2022_noblank <- ocme_2022 %>% filter(Res.City != "" & injury_city_revised!="Unknown")
+
+# convert all Willimantic residences to Windham, because otherwise the out of town calculations get messed up
+ocme_2022_noblank$Res.City <- ifelse(ocme_2022_noblank$Res.City == "Willimantic", "Windham", ocme_2022_noblank$Res.City)
+
+# print a statement with some function output -- from https://stackoverflow.com/questions/13036649/how-do-i-concatenate-string-and-an-output-evaluated-from-a-function-in-r [the %d stands for an integer]
+sprintf("There were %d instances where a person's residence town didn't match up with their injury town, out of %d ODs in 2022 where the injury and residence town were both known. This is %f of all such ODs in this year.", nrow(subset(ocme_2022_noblank, Res.City != injury_city_revised)), nrow(ocme_2022_noblank), nrow(subset(ocme_2022_noblank, Res.City != injury_city_revised))/nrow(ocme_2022_noblank))
+
+#print("Here are the towns where someone OD'd but didn't live there:")
+
+#table(subset(ocme_2022_noblank, Res.City != injury_city_revised)$injury_city_revised)
+
+#export data for Hartford, New Haven, Bridgeport and Waterbury
+
+#oot_2022 <- subset(ocme_2022_noblank, Res.City != injury_city_revised)
+            
+#big4_2022 <- subset(oot_2022, injury_city_revised %in% c("New Haven", "Hartford", "Bridgeport", "Waterbury"))
+
+#big4_2022 <- big4_2022 %>% select(Res.City, injury.locn_revised, injury.location_details, injury_city_revised)
+
+# for some reason for this you need double backslashes instead of single
+#write.csv(big4_2022,"C:\\Users\\ar2529\\Desktop\\opioid_causal_effect\\2022_out_of_town.csv", row.names = FALSE) 
+
+print("Here's a more in-depth look at out-of-town ODs in specific towns:")
+
+# initialize empty matrix, from https://stackoverflow.com/questions/32712301/create-empty-data-frame-with-column-names-by-assigning-a-string-vector
+
+out_of_town_2022 <- data.frame(matrix(ncol = 4, nrow = 0))
+cols <- c("Town name","Out-of-town ODs","Total ODs","Percent of out-of-town ODs")
+
+# iteratively add info from these towns to the df, from https://www.projectpro.io/recipes/append-output-from-for-loop-dataframe-r
+
+# change to unique(ocme_2022$injury_city_revised) to get all towns -- from https://stackoverflow.com/questions/45235422/does-r-have-a-set-data-structure
+
+for (i in c("Danbury", "Waterbury", "Torrington", "New Haven", "West Haven", "Hartford", "Norwich", "New London", "Bridgeport", "New Britain", "Litchfield", "Meriden", "Norwalk", "Stamford", "Windham")) {
+  
+  # subset for the number of ODs in that town 
+  
+  ocme_injury_2022 <- subset(ocme_2022_noblank, injury_city_revised == i)
+  
+  # create a results vector to append to out_of_town 2020 df
+  # contains town name, number of ODs from out of town residents, total ODs and fraction of out of town ODs in that   order
+  
+  results <- c(i, nrow(subset(ocme_injury_2022, Res.City != injury_city_revised)), nrow(ocme_injury_2022), round(nrow(subset(ocme_injury_2022, Res.City != injury_city_revised))/nrow(ocme_injury_2022), 3)*100)
+
+  # add this to the out of town df 
+  out_of_town_2022 = rbind(out_of_town_2022, results)
+}
+
+# for some reason it doesn't work if I do this before adding rows?
+colnames(out_of_town_2022) <- cols
+
+out_of_town_2022
+```
+
+### Injury location {.tabset}
+
+#### 2018
+
+```{r injury2018, echo=FALSE, message=FALSE, warning=FALSE}
+ocme_2018$injury_location <- ifelse(ocme_2018$injury.location_revised %in% c("", "Unknown", "unclear"), "unknown",ifelse(ocme_2018$injury.location_revised == "other,indoors", "other, indoors", ifelse(ocme_2018$injury.location_revised %in% c("Other, Residential Institution", "other residence"), "residence", ifelse(ocme_2018$injury.location_revised == "other, outdoors", "outdoors", ocme_2018$injury.location_revised))))
+
+residence_2018 <- ggplot(data=ocme_2018, aes(x=injury_location, ..count..)) + geom_bar(aes(fill = injury_location), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45), breaks = ocme_2018$injury_location, labels = ocme_2018$injury_location) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black") + ggtitle("Opioid-detected overdose injury locations for 2018")+theme(plot.title = element_text(hjust = 0.5), legend.position="right", axis.text.x = element_text(size = 7))
+
+residence_2018
+
+ggsave(plot=residence_2018, filename = "images/statewide/injury_collapsed_2018.png", width = 10, height = 8)
+
+residence_2018_prop <- ggplot(data=ocme_2018, aes(x=injury_location, ..count..)) + geom_bar(aes(fill = injury_location), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45), breaks = ocme_2018$injury_location, labels = ocme_2018$injury_location) + theme_light() + geom_text(aes(label = round(..count../nrow(ocme_2018), 3)), stat = "count", vjust = 0, colour = "black", size=3) + ggtitle("Opioid-detected overdose injury locations for 2018")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 10))
+
+residence_2018_prop
+
+ggsave(plot=residence_2018_prop, filename = "images/statewide/injury_collapsed_2018_prop.png", width = 10, height = 8)
+
+```
+
+#### 2019
+
+```{r injuryRevised2019, echo=FALSE, message=FALSE, warning=FALSE}
+ocme_2019$injury_collapsed <- ifelse(ocme_2019$injury.locn_revised == "", "unknown", ifelse(ocme_2019$injury.locn_revised == "other residence", "residence", ocme_2019$injury.locn_revised))
+
+ocme_2019$injury_collapsed <- ifelse(ocme_2019$injury.locn_revised %in% c("other residence", "residence?"), "residence", ifelse(ocme_2019$injury.locn_revised == "other, outdoors", "outdoors", ifelse(ocme_2019$injury.locn_revised=="store", "store/shopping area", ifelse(ocme_2019$injury.locn_revised == "work site", "workplace", ifelse(ocme_2019$injury.locn_revised %in% c("", "unclear", "unspecified", "missing", "unidentified"), "unknown", ifelse(ocme_2019$injury.locn_revised == "other, indoors", "other indoors", ocme_2019$injury.locn_revised))))))
+
+
+injury_collapsed_2019 <- ggplot(data=ocme_2019, aes(x=injury_collapsed, ..count..)) + geom_bar(aes(fill = injury_collapsed), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45), breaks = ocme_2019$injury_collapsed, labels = ocme_2019$injury_collapsed) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black") + ggtitle("Opioid-detected overdose injury locations for 2019")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 10))
+
+injury_collapsed_2019
+
+ggsave(plot=injury_collapsed_2019, filename = "images/statewide/injury_collapsed_2019.png", width = 10, height = 8)
+
+injury_collapsed_2019_prop <- ggplot(data=ocme_2019, aes(x=injury_collapsed, ..count..)) + geom_bar(aes(fill = injury_collapsed), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45), breaks = ocme_2019$injury_collapsed, labels = ocme_2019$injury_collapsed) + theme_light() + geom_text(aes(label = round(..count../nrow(ocme_2019), 3)), stat = "count", vjust = 0, colour = "black") + ggtitle("Opioid-detected overdose injury locations for 2019")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 10))
+
+injury_collapsed_2019_prop
+
+ggsave(plot=injury_collapsed_2019_prop, filename = "images/statewide/injury_collapsed_2019_prop.png", width = 10, height = 8)
+
+```
+
+
+#### 2020
+
+
+```{r injury2020, echo=FALSE, message=FALSE, warning=FALSE}
+ocme_2020$injury_location <- ifelse(ocme_2020$injury.locn_revised == " residence ", "residence", ocme_2020$injury.locn_revised)
+
+ocme_2020$injury_collapsed <- ifelse(ocme_2020$injury_location %in% c("apartment complex", "former residence", "other residence", "residence or drug spot"), "residence", ifelse(ocme_2020$injury_location %in% c("hospital ER", "hospital "), "hospital", ifelse(ocme_2020$injury_location == "other, indoors", "other indoors", ifelse(ocme_2020$injury_location == "unspecified", "unknown", ocme_2020$injury_location))))
+
+injury_collapsed_2020 <- ggplot(data=ocme_2020, aes(x=injury_collapsed, ..count..)) + geom_bar(aes(fill = injury_collapsed), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45), breaks = ocme_2020$injury_collapsed, labels = ocme_2020$injury_collapsed) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black") + ggtitle("Opioid-detected overdose injury locations for 2020")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 10))
+
+injury_collapsed_2020
+
+ggsave(plot=injury_collapsed_2020, filename = "images/statewide/injury_collapsed_2020.png", width = 10, height = 8)
+
+injury_collapsed_2020_prop <- ggplot(data=ocme_2020, aes(x=injury_collapsed, ..count..)) + geom_bar(aes(fill = injury_collapsed), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45), breaks = ocme_2020$injury_collapsed, labels = ocme_2020$injury_collapsed) + theme_light() + geom_text(aes(label = round(..count../nrow(ocme_2020), 3)), stat = "count", vjust = 0, colour = "black") + ggtitle("Opioid-detected overdose injury locations for 2020")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 10))
+
+injury_collapsed_2020_prop
+
+ggsave(plot=injury_collapsed_2020_prop, filename = "images/statewide/injury_collapsed_2020_prop.png", width = 10, height = 8)
+
+```
+
+
+#### 2021
+
+
+```{r injuryRevised2021, echo=FALSE, message=FALSE, warning=FALSE}
+ocme_2021$injury_location <- ifelse(ocme_2021$injury.locn_revised %in% c("residence ", "resdience"), "residence", ifelse(ocme_2021$injury.locn_revised == "other,indoors", "other, indoors", ifelse(ocme_2021$injury.locn_revised == "outdoors ", "outdoors", ifelse(ocme_2021$injury.locn_revised == "store/shoppping area", "store/shopping area", ifelse(ocme_2021$injury.locn_revised == "vehicle ", "vehicle", ocme_2021$injury.locn_revised)))))
+
+ocme_2021$injury_collapsed <- ifelse(ocme_2021$injury_location %in% c("residence for p4m)", "house", "unclear residence", "other residence"), "residence", ifelse(ocme_2021$injury_location == "DOC transitional site", "halfway house", ifelse(ocme_2021$injury_location %in% c("outdoors?", "street"), "outdoors", ifelse(ocme_2021$injury_location == "vehicle", "vehicle/parking lot", ifelse(ocme_2021$injury_location %in% c("unclear", "unspecified"), "unknown", ifelse(ocme_2021$injury_location %in% c("indoors", "elementary school", "truck cabin"), "other, indoors", ocme_2021$injury_location))))))
+
+injury_collapsed_2021 <- ggplot(data=ocme_2021, aes(x=injury_collapsed, ..count..)) + geom_bar(aes(fill = injury_collapsed), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45), breaks = ocme_2021$injury_collapsed, labels = ocme_2021$injury_collapsed) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black") + ggtitle("Opioid-detected overdose injury locations for 2021")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 10))
+
+injury_collapsed_2021
+
+ggsave(plot=injury_collapsed_2021, filename = "images/statewide/injury_collapsed_2021.png", width = 10, height = 8)
+
+injury_collapsed_2021_prop <- ggplot(data=ocme_2021, aes(x=injury_collapsed, ..count..)) + geom_bar(aes(fill = injury_collapsed), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45), breaks = ocme_2021$injury_collapsed, labels = ocme_2021$injury_collapsed) + theme_light() + geom_text(aes(label = round(..count../nrow(ocme_2021), 3)), stat = "count", vjust = 0, colour = "black") + ggtitle("Opioid-detected overdose injury locations for 2021")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 10))
+
+injury_collapsed_2021_prop
+
+ggsave(plot=injury_collapsed_2021_prop, filename = "images/statewide/injury_collapsed_2021_prop.png", width = 10, height = 8)
+```
+
+#### 2022
+
+
+```{r injuryRevised2022, echo=FALSE, message=FALSE, warning=FALSE}
+
+ocme_2022$injury_collapsed <- ifelse(ocme_2022$injury.locn_revised %in% c("other residence", "residence?", "residence ", "residential building", "unknown residence", "home"), "residence", ifelse(ocme_2022$injury.locn_revised %in% c("other, indoors", "other, indoors ", "other building"), "other indoors", ifelse(ocme_2022$injury.locn_revised %in% c("boat", "camper IFO address"), "vehicle", ifelse(ocme_2022$injury.locn_revised %in% c("", "unknown", "unspecified", "unspecified place"), "unknown", ifelse(ocme_2022$injury.locn_revised == "workpkace", "workplace", ifelse(ocme_2022$injury.locn_revised =="other ", "other", ifelse(ocme_2022$injury.locn_revised %in% c("outdoors ", "street"), "outdoors", ifelse(ocme_2022$injury.locn_revised == "parking garage", "parking lot", ocme_2022$injury.locn_revised))))))))
+
+injury_collapsed_2022 <- ggplot(data=ocme_2022, aes(x=injury_collapsed, ..count..)) + geom_bar(aes(fill = injury_collapsed), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45), breaks = ocme_2022$injury_collapsed, labels = ocme_2022$injury_collapsed) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black") + ggtitle("Opioid-detected overdose injury locations for 2022")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 10))
+
+injury_collapsed_2022
+
+ggsave(plot=injury_collapsed_2022, filename = "images/statewide/injury_collapsed_2022.png", width = 10, height = 8)
+
+injury_collapsed_2022_prop <- ggplot(data=ocme_2022, aes(x=injury_collapsed, ..count..)) + geom_bar(aes(fill = injury_collapsed), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45), breaks = ocme_2022$injury_collapsed, labels = ocme_2022$injury_collapsed) + theme_light() + geom_text(aes(label = round(..count../nrow(ocme_2022), 3)), stat = "count", vjust = 0, colour = "black") + ggtitle("Opioid-detected overdose injury locations for 2022")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 10))
+
+injury_collapsed_2022_prop
+
+ggsave(plot=injury_collapsed_2022_prop, filename = "images/statewide/injury_collapsed_2022_prop.png", width = 10, height = 8)
+```
+
+### Are people dying in their own homes?  {.tabset}
+
+#### 2018
+
+```{r ownHome2018, echo=FALSE, message=FALSE, warning=FALSE}
+
+sprintf("There were %d people who OD'd in their own residence.", sum(ocme_2018$injury_address_updated == ocme_2018$residence_address_updated))
+
+sprintf("The proportion of decedents ODing in their own residence was %f.", sum(ocme_2018$injury_address_updated == ocme_2018$residence_address_updated)/nrow(ocme_2018))
+
+sprintf("Out of everyone who OD'd in a residence, %f of people OD'd in their own residence.", sum(ocme_2018$injury_address_updated == ocme_2018$residence_address_updated)/sum(ocme_2018$injury_location=="residence"))
+
+```
+
+#### 2019
+
+```{r ownHome2019, echo=FALSE, message=FALSE, warning=FALSE}
+
+sprintf("There were %d people who OD'd in their own residence.", sum(ocme_2019$Injury.Address1 == ocme_2019$Residence.Address1))
+
+sprintf("The proportion of decedents ODing in their own residence was %f.", sum(ocme_2019$Injury.Address1 == ocme_2019$Residence.Address1)/nrow(ocme_2019))
+
+sprintf("Out of everyone who OD'd in a residence, %f of people OD'd in their own residence.", sum(ocme_2019$Injury.Address1 == ocme_2019$Residence.Address1)/sum(ocme_2019$injury_collapsed=="residence"))
+
+```
+
+#### 2020
+
+```{r ownHome2020, echo=FALSE, message=FALSE, warning=FALSE}
+
+sprintf("There were %d people who OD'd in their own residence.", sum(ocme_2020$Injury.Address1 == ocme_2020$Residence.Address1))
+
+sprintf("The proportion of decedents ODing in their own residence was %f.", sum(ocme_2020$Injury.Address1 == ocme_2020$Residence.Address1)/nrow(ocme_2020))
+
+sprintf("Out of everyone who OD'd in a residence, %f of people OD'd in their own residence.", sum(ocme_2020$Injury.Address1 == ocme_2020$Residence.Address1)/sum(ocme_2020$injury_collapsed=="residence"))
+
+```
+
+#### 2021
+
+```{r ownHome2021, echo=FALSE, message=FALSE, warning=FALSE}
+
+sprintf("There were %d people who OD'd in their own residence.", sum(ocme_2021$ResStreet.Name %in% c(ocme_2021$InjuryPost.Directional, ocme_2021$InjuryStreet.Name)))
+
+sprintf("The proportion of decedents ODing in their own residence was %f.", sum(ocme_2021$ResStreet.Name %in% c(ocme_2021$InjuryPost.Directional, ocme_2021$InjuryStreet.Name))/nrow(ocme_2021))
+
+sprintf("Out of everyone who OD'd in a residence, %f of people OD'd in their own residence.", sum(ocme_2021$ResStreet.Name %in% c(ocme_2021$InjuryPost.Directional, ocme_2021$InjuryStreet.Name))/sum(ocme_2021$injury_collapsed=="residence"))
+
+```
+
+#### 2022
+
+```{r ownHome2022, echo=FALSE, message=FALSE, warning=FALSE}
+sprintf("There were %d people who OD'd in their own residence.", sum(ocme_2022$Residential.Street.Address_REVISED == ocme_2022$Injury.Street.Address_REVISED))
+
+sprintf("The proportion of decedents ODing in their own residence was %f.",  sum(ocme_2022$Residential.Street.Address_REVISED == ocme_2022$Injury.Street.Address_REVISED)/nrow(ocme_2022))
+
+sprintf("Out of everyone who OD'd in a residence, %f of people OD'd in their own residence.",  sum(ocme_2022$Residential.Street.Address_REVISED == ocme_2022$Injury.Street.Address_REVISED)/sum(ocme_2022$injury_collapsed=="residence"))
+```
+
+
+### Most common substances {.tabset}
+
+#### 2018
+```{r drugsUsed2018, echo=FALSE, message=FALSE, warning=FALSE}
+# got original idea from https://stackoverflow.com/questions/48562288/frequency-of-each-unique-combination-in-data-frame
+# the n column wasn't in order, which i fixed with https://dplyr.tidyverse.org/reference/arrange.html
+# arrange() provides ascending order so I used desc(n) [instead of just n] to fix that, from https://www.rdocumentation.org/packages/dplyr/versions/0.7.6/topics/desc
+
+mostCommon2018 <- arrange(ocme_2018 %>% group_by(cocaine, combo..her.pharm.or.fent..OR.pharm.fent, heronly, pharmonly, fentonly, heroin, X6.mam, morphine, hermor_nocod, codeine, cod_w_no_hermor, di.H.codeine, hydromorphone, oxymorphone, hydrocodone, oxycodone, methadone, buprenorphine, fentanyl..4ANPP.too., Frankens, fent.or.frankens, tramadol, opioid.analogs..e.g...U47700., otherop, pharma_w_meth_no_fent.or.op.analogs.or.cod.or..other.op., pharma_nobupnometh, other, benzos, amphetamine, EtOH, THC) %>% tally, desc(n))
+
+# show the top 5 combinations, from https://stackoverflow.com/questions/22471256/overriding-variables-not-shown-in-dplyr-to-display-all-columns-from-df
+
+head(mostCommon2018, 5) %>% glimpse()
+
+```
+
+The top 5 substance combinations for 2018 are: 
+
+1) fent only
+2) cocaine, fent only 
+3) fent only, weed
+4) fent only, other
+5) cocaine, fent only, other 
+
+
+#### 2019
+
+```{r drugsUsed2019, echo=FALSE, message=FALSE, warning=FALSE}
+# got original idea from https://stackoverflow.com/questions/48562288/frequency-of-each-unique-combination-in-data-frame
+# the n column wasn't in order, which i fixed with https://dplyr.tidyverse.org/reference/arrange.html
+# arrange() provides ascending order so I used desc(n) [instead of just n] to fix that, from https://www.rdocumentation.org/packages/dplyr/versions/0.7.6/topics/desc
+
+# turn the xylazine column into a binary variable--I treat any non-null character as a positive indication of xyl presence. One issue is the "*" characters -- not sure what to do with them.  
+
+ocme_2019$xyla <- replace(ocme_2019$xyla, ocme_2019$xyla == "", 0)
+ocme_2019$xyla <- replace(ocme_2019$xyla, !(ocme_2019$xyla == 0), 1)
+
+# convert into integers since for some reason the 0 and 1 are characters
+ocme_2019$xyla <- sapply(ocme_2019$xyla, as.integer)
+
+mostCommon2019 <- arrange(ocme_2019 %>% group_by(xyla, combo, heronly, pharmonly, fentonly, Heroin, X6.mam , Morphine, hermor_nocod, Codeine, cod.w.no.hermor, di.H.codeine, Hydromorphone, oxymorphone, Hydrocodone, Oxycodone, Methadone, bup, fentanyl..4.ANPP.too., frankens, fent...frankens, tramadol, opioid.analogs..e.g...U47700., Other.Op, pharma..w..meth.bup_no.fent.or.op.analogs.or.cod.or..other.op.., pharma_nobupnometh, other, benzos, cocaine, amphetamine, EtOH, THC) %>% tally, desc(n))
+
+# rename some vars for easier viewing, from https://stackoverflow.com/questions/7531868/how-to-rename-a-single-column-in-a-data-frame
+
+names(mostCommon2019)[names(mostCommon2019) == 'pharma..w..meth.bup_no.fent.or.op.analogs.or.cod.or..other.op..'] <- 'pharma.w.meth.bup.no.fent.or.other.op'
+
+# show the top 5 combinations
+head(mostCommon2019, 5) %>% glimpse()
+```
+
+The top 5 substance combinations for 2019 are: 
+
+1) fent only, cocaine
+2) fent only 
+3) fent only, other, cocaine
+4) fent only, alcohol
+5) fent only, other, cocaine, alcohol 
+
+#### 2020
+
+```{r drugsUsed2020, echo=FALSE, message=FALSE, warning=FALSE}
+# got original idea from https://stackoverflow.com/questions/48562288/frequency-of-each-unique-combination-in-data-frame
+# the n column wasn't in order, which i fixed with https://dplyr.tidyverse.org/reference/arrange.html
+# arrange() provides ascending order so I used desc(n) [instead of just n] to fix that, from https://www.rdocumentation.org/packages/dplyr/versions/0.7.6/topics/desc
+
+mostCommon2020 <- arrange(ocme_2020 %>% group_by(combo, heronly, pharmonly, fentonly, Heroin, X6.mam , Morphine, hermor_nocod, Codeine, cod.w.no.hermor, di.H.codeine, Hydromorphone, oxymorphone, Hydrocodone, Oxycodone, Methadone, bup, fentanyl..4.ANPP.too., frankens, fent...frankens, tramadol, opioid.analogs..e.g...U47700., Other.Op, pharma..w..meth.bup_no.fent.or.op.analogs.or.cod.or..other.op.., pharma_nobupnometh, other, benzos, cocaine, amphetamine, EtOH, THC) %>% tally, desc(n))
+
+# rename some vars for easier viewing, from https://stackoverflow.com/questions/7531868/how-to-rename-a-single-column-in-a-data-frame
+
+names(mostCommon2020)[names(mostCommon2020) == 'pharma..w..meth.bup_no.fent.or.op.analogs.or.cod.or..other.op..'] <- 'pharma.w.meth.bup.no.fent.or.other.op'
+
+# show the top 5 combinations
+head(mostCommon2020, 5) %>% glimpse()
+
+```
+
+The top 5 substance combinations for 2020 are: 
+
+1) fent only, cocaine
+2) fent only 
+3) fent only, other, cocaine
+4) fent only, other
+5) fent only, alcohol
+
+#### 2021
+
+```{r drugsUsed2021, echo=FALSE, message=FALSE, warning=FALSE}
+# got original idea from https://stackoverflow.com/questions/48562288/frequency-of-each-unique-combination-in-data-frame
+# the n column wasn't in order, which i fixed with https://dplyr.tidyverse.org/reference/arrange.html
+# arrange() provides ascending order so I used desc(n) [instead of just n] to fix that, from https://www.rdocumentation.org/packages/dplyr/versions/0.7.6/topics/desc
+
+mostCommon2021 <- arrange(ocme_2021 %>% group_by(combo, her.only, pharm.only, fent.only, Heroin, X6.mam , Morphine, hermor_nocod, Codeine, cod.w.no.hermor, di.H.codeine, Hydromorphone, oxymorphone, Hydrocodone, Oxycodone, Methadone, bup, fentanyl..4.ANPP.despropionyl.fent.too., frankens, fent...frankens, tramadol, opioid.analogs..e.g...U47700..mitragynine.KRATOM..metonitazene...syr.and.cooker.etc.on.nightstand.in.photos...Me.prednisone, Other.Op, pharma..w..meth.bup_no.fent.or.op.analogs.or.cod.or..other.op.., pharma_nobupnometh, other, benzos, cocaine, amphetamine..including.eutylone., EtOH, THC) %>% tally, desc(n))
+
+# rename some vars for easier viewing, from https://stackoverflow.com/questions/7531868/how-to-rename-a-single-column-in-a-data-frame
+# for some reason I can't combine these statements?
+
+names(mostCommon2021)[names(mostCommon2021) == 'opioid.analogs..e.g...U47700..mitragynine.KRATOM..metonitazene...syr.and.cooker.etc.on.nightstand.in.photos...Me.prednisone'] <- 'opioid.analogs.e.g.mitragynine'
+
+names(mostCommon2021)[names(mostCommon2021) == 'pharma..w..meth.bup_no.fent.or.op.analogs.or.cod.or..other.op..'] <- 'pharma.w.meth.bup.no.fent.or.other.op'
+
+# show the top 5 combinations
+head(mostCommon2021, 5) %>% glimpse()
+
+```
+
+The top 5 substance combinations for 2021 are: 
+
+1) fent only, other, cocaine
+2) fent only, cocaine
+3) fent only, other
+4) fent only, cocaine, alcohol
+5) fent only, other, cocaine, alcohol
+
+
+#### 2022
+
+```{r drugsUsed2022, echo=FALSE, message=FALSE, warning=FALSE}
+# got original idea from https://stackoverflow.com/questions/48562288/frequency-of-each-unique-combination-in-data-frame
+# the n column wasn't in order, which i fixed with https://dplyr.tidyverse.org/reference/arrange.html
+# arrange() provides ascending order so I used desc(n) [instead of just n] to fix that, from https://www.rdocumentation.org/packages/dplyr/versions/0.7.6/topics/desc
+
+mostCommon2022 <- arrange(ocme_2022 %>% group_by(combo, her.only, pharm.only, fent.only, Heroin, X6.mam , Morphine, hermor_nocod, Codeine, cod.w.no.hermor, di.H.codeine, Hydro.morphone, oxy.morphone, Hydro.codone, Oxy.codone, Methadone, bup, fentanyl..4.ANPP.despropionyl.fent.too., frankens, fent...frankens, tramadol, opioid.analogs..e.g...U47700..mitragynine.KRATOM..metonitazene...syr.and.cooker.etc.on.nightstand.in.photos...Me.prednisone, Other.Op, pharma..w..meth.bup_no.fent.or.op.analogs.or.cod.or..other.op.., pharma_nobupnometh, other, benzos, cocaine, amphetamine.other.stimulants..including.eutylone..MDMA..N.N.diMe.pentylone., EtOH, THC) %>% tally, desc(n))
+
+# rename some vars for easier viewing, from https://stackoverflow.com/questions/7531868/how-to-rename-a-single-column-in-a-data-frame
+
+names(mostCommon2022)[names(mostCommon2022) == 'opioid.analogs..e.g...U47700..mitragynine.KRATOM..metonitazene...syr.and.cooker.etc.on.nightstand.in.photos...Me.prednisone'] <- 'opioid.analogs.e.g.mitragynine'
+
+names(mostCommon2022)[names(mostCommon2022) == 'pharma..w..meth.bup_no.fent.or.op.analogs.or.cod.or..other.op..'] <- 'pharma.w.meth.bup.no.fent.or.other.op'
+
+names(mostCommon2022)[names(mostCommon2022) == 'amphetamine.other.stimulants..including.eutylone..MDMA..N.N.diMe.pentylone.'] <- 'amphetamine.including.eutylone.MDMA'
+
+
+# show the top 5 combinations
+head(mostCommon2022, 5) %>% glimpse()
+
+```
+
+The top 5 substance combinations for 2022 are: 
+
+1) fent only, other, cocaine
+2) fent only, cocaine
+3) fent only, other
+4) fent only, cocaine, alcohol
+5) fent only, other, cocaine, alcohol
+
+### How many people were using chronically? {.tabset}
+
+I identify chronic users crudely -- I look for entries where the words "chronic" [can sometimes indicate chronic pain, meaning opioid scripts], "Chronic", "user", "drug use", "drug user", "drug abuse", "snort", "snorts", "drug abuse", "addict", "addicted", "rehab", "sober house", "clean" or "abuse" pops up in either the notes field or immediate cause of death, because that generally means that the person had chronic drug use [based on my look at the data]
+
+#### 2018
+
+```{r chronicUse2018, echo=FALSE, message=FALSE, warning=FALSE}
+# find entries in either "MY.NOTES" or "AmendedImmediateCauseofDeath" with the words "chronic", "drug user", "drug use", "user", "snort", "shorts" or "drug abuse"
+# I tried doing this as grep(c("chronic", "drug user", ...)) but that literally didn't work so I'm stuck with this ugliness
+
+chronic2018 <- subset(ocme_2018, grepl("chronic", ocme_2018$MY.NOTES, fixed=TRUE) | grepl( "Chronic", ocme_2018$MY.NOTES, fixed=TRUE) | grepl( "drug user", ocme_2018$MY.NOTES, fixed=TRUE) | grepl( "user", ocme_2018$MY.NOTES, fixed=TRUE) | grepl( "snort", ocme_2018$MY.NOTES, fixed=TRUE) | grepl( "snorts", ocme_2018$MY.NOTES, fixed=TRUE) | grepl( "drug abuse", ocme_2018$MY.NOTES, fixed=TRUE) | grepl( "addict", ocme_2018$MY.NOTES, fixed=TRUE) | grepl( "addicted", ocme_2018$MY.NOTES, fixed=TRUE) | grepl( "rehab", ocme_2018$MY.NOTES, fixed=TRUE) | grepl( "sober house ", ocme_2018$MY.NOTES, fixed=TRUE) | grepl( "clean", ocme_2018$MY.NOTES, fixed=TRUE) | grepl( "abuse", ocme_2018$MY.NOTES, fixed=TRUE) | grepl("chronic", ocme_2018$AmendedImmediateCauseofDeath, fixed=TRUE) | grepl( "Chronic", ocme_2018$AmendedImmediateCauseofDeath, fixed=TRUE) | grepl( "drug user", ocme_2018$AmendedImmediateCauseofDeath, fixed=TRUE) | grepl( "user", ocme_2018$AmendedImmediateCauseofDeath, fixed=TRUE) | grepl( "snort", ocme_2018$AmendedImmediateCauseofDeath, fixed=TRUE) | grepl( "snorts", ocme_2018$AmendedImmediateCauseofDeath, fixed=TRUE) | grepl( "drug abuse", ocme_2018$AmendedImmediateCauseofDeath, fixed=TRUE) | grepl( "addict", ocme_2018$AmendedImmediateCauseofDeath, fixed=TRUE) | grepl( "addicted", ocme_2018$AmendedImmediateCauseofDeath, fixed=TRUE) | grepl( "rehab", ocme_2018$AmendedImmediateCauseofDeath, fixed=TRUE) | grepl( "sober house ", ocme_2018$AmendedImmediateCauseofDeath, fixed=TRUE) | grepl( "clean", ocme_2018$AmendedImmediateCauseofDeath, fixed=TRUE) | grepl( "abuse", ocme_2018$AmendedImmediateCauseofDeath, fixed=TRUE))
+
+sprintf("There were at least %d people with known chronic use out of %d decedents in 2018, which is %f percent of all decedents.", nrow(chronic2018), nrow(ocme_2018), (nrow(chronic2018)/nrow(ocme_2018))*100)
+
+```
+
+
+#### 2019
+
+```{r chronicUse2019, echo=FALSE, message=FALSE, warning=FALSE}
+# find entries in either "MY.NOTES" or "AmendedImmediateCauseofDeath" with the words "chronic", "drug user", "drug use", "user", "snort", "shorts" or "drug abuse"
+
+chronic2019 <- subset(ocme_2019, grepl("chronic", ocme_2019$MY.NOTES, fixed=TRUE) | grepl( "Chronic", ocme_2019$MY.NOTES, fixed=TRUE) | grepl( "drug user", ocme_2019$MY.NOTES, fixed=TRUE) | grepl( "user", ocme_2019$MY.NOTES, fixed=TRUE) | grepl( "snort", ocme_2019$MY.NOTES, fixed=TRUE) | grepl( "snorts", ocme_2019$MY.NOTES, fixed=TRUE) | grepl( "drug abuse", ocme_2019$MY.NOTES, fixed=TRUE) | grepl( "addict", ocme_2019$MY.NOTES, fixed=TRUE) | grepl( "addicted", ocme_2019$MY.NOTES, fixed=TRUE) | grepl( "rehab", ocme_2019$MY.NOTES, fixed=TRUE) | grepl( "sober house ", ocme_2019$MY.NOTES, fixed=TRUE) | grepl( "clean", ocme_2019$MY.NOTES, fixed=TRUE) | grepl( "abuse", ocme_2019$MY.NOTES, fixed=TRUE) | grepl("chronic", ocme_2019$Amended.Immediate.Cause.of.Death, fixed=TRUE) | grepl( "Chronic", ocme_2019$Amended.Immediate.Cause.of.Death, fixed=TRUE) | grepl( "drug user", ocme_2019$Amended.Immediate.Cause.of.Death, fixed=TRUE) | grepl( "user", ocme_2019$Amended.Immediate.Cause.of.Death, fixed=TRUE) | grepl( "snort", ocme_2019$Amended.Immediate.Cause.of.Death, fixed=TRUE) | grepl( "snorts", ocme_2019$Amended.Immediate.Cause.of.Death, fixed=TRUE) | grepl( "drug abuse", ocme_2019$Amended.Immediate.Cause.of.Death, fixed=TRUE) | grepl( "addict", ocme_2019$Amended.Immediate.Cause.of.Death, fixed=TRUE) | grepl( "addicted", ocme_2019$Amended.Immediate.Cause.of.Death, fixed=TRUE) | grepl( "rehab", ocme_2019$Amended.Immediate.Cause.of.Death, fixed=TRUE) | grepl( "sober house ", ocme_2019$Amended.Immediate.Cause.of.Death, fixed=TRUE) | grepl( "clean", ocme_2019$Amended.Immediate.Cause.of.Death, fixed=TRUE) | grepl( "abuse", ocme_2019$Amended.Immediate.Cause.of.Death, fixed=TRUE))
+
+sprintf("There were at least %d people with known chronic use out of %d decedents in 2019, which is %f percent of all decedents.", nrow(chronic2019), nrow(ocme_2019), (nrow(chronic2019)/nrow(ocme_2019))*100)
+
+
+```
+#### 2020
+
+```{r chronicUse2020, echo=FALSE, message=FALSE, warning=FALSE}
+# find entries in either "MY.NOTES" or "AmendedImmediateCauseofDeath" with the words "chronic", "drug user", "drug use", "user", "snort", "shorts" or "drug abuse"
+
+chronic2020 <- subset(ocme_2020, grepl("chronic", ocme_2020$MY.NOTES, fixed=TRUE) | grepl( "Chronic", ocme_2020$MY.NOTES, fixed=TRUE) | grepl( "drug user", ocme_2020$MY.NOTES, fixed=TRUE) | grepl( "user", ocme_2020$MY.NOTES, fixed=TRUE) | grepl( "snort", ocme_2020$MY.NOTES, fixed=TRUE) | grepl( "snorts", ocme_2020$MY.NOTES, fixed=TRUE) | grepl( "drug abuse", ocme_2020$MY.NOTES, fixed=TRUE) | grepl( "addict", ocme_2020$MY.NOTES, fixed=TRUE) | grepl( "addicted", ocme_2020$MY.NOTES, fixed=TRUE) | grepl( "rehab", ocme_2020$MY.NOTES, fixed=TRUE) | grepl( "sober house ", ocme_2020$MY.NOTES, fixed=TRUE) | grepl( "clean", ocme_2020$MY.NOTES, fixed=TRUE) | grepl( "abuse", ocme_2020$MY.NOTES, fixed=TRUE) | grepl("chronic", ocme_2020$Ammended.Immediate.Cause.of.Death, fixed=TRUE) | grepl( "Chronic", ocme_2020$Ammended.Immediate.Cause.of.Death, fixed=TRUE) | grepl( "drug user", ocme_2020$Ammended.Immediate.Cause.of.Death, fixed=TRUE) | grepl( "user", ocme_2020$Ammended.Immediate.Cause.of.Death, fixed=TRUE) | grepl( "snort", ocme_2020$Ammended.Immediate.Cause.of.Death, fixed=TRUE) | grepl( "snorts", ocme_2020$Ammended.Immediate.Cause.of.Death, fixed=TRUE) | grepl( "drug abuse", ocme_2020$Ammended.Immediate.Cause.of.Death, fixed=TRUE) | grepl( "addict", ocme_2020$Ammended.Immediate.Cause.of.Death, fixed=TRUE) | grepl( "addicted", ocme_2020$Ammended.Immediate.Cause.of.Death, fixed=TRUE) | grepl( "rehab", ocme_2020$Ammended.Immediate.Cause.of.Death, fixed=TRUE) | grepl( "sober house ", ocme_2020$Ammended.Immediate.Cause.of.Death, fixed=TRUE) | grepl( "clean", ocme_2020$Ammended.Immediate.Cause.of.Death, fixed=TRUE) | grepl( "abuse", ocme_2020$Ammended.Immediate.Cause.of.Death, fixed=TRUE))
+
+sprintf("There were at least %d people with known chronic use out of %d decedents in 2020, which is %f percent of all decedents.", nrow(chronic2020), nrow(ocme_2020), (nrow(chronic2020)/nrow(ocme_2020))*100)
+
+
+```
+
+#### 2021
+
+```{r chronicUse2021, echo=FALSE, message=FALSE, warning=FALSE}
+# find entries in either "MY.NOTES" or "AmendedImmediateCauseofDeath" with the words "chronic", "drug user", "drug use", "user", "snort", "shorts" or "drug abuse"
+
+chronic2021 <- subset(ocme_2021, grepl("chronic", ocme_2021$MY.NOTES.1, fixed=TRUE) | grepl( "Chronic", ocme_2021$MY.NOTES.1, fixed=TRUE) | grepl( "drug user", ocme_2021$MY.NOTES.1, fixed=TRUE) | grepl( "user", ocme_2021$MY.NOTES.1, fixed=TRUE) | grepl( "snort", ocme_2021$MY.NOTES.1, fixed=TRUE) | grepl( "snorts", ocme_2021$MY.NOTES.1, fixed=TRUE) | grepl( "drug abuse", ocme_2021$MY.NOTES.1, fixed=TRUE) | grepl( "addict", ocme_2021$MY.NOTES.1, fixed=TRUE) | grepl( "addicted", ocme_2021$MY.NOTES.1, fixed=TRUE) | grepl( "rehab", ocme_2021$MY.NOTES.1, fixed=TRUE) | grepl( "sober house ", ocme_2021$MY.NOTES.1, fixed=TRUE) | grepl( "clean", ocme_2021$MY.NOTES.1, fixed=TRUE) | grepl( "abuse", ocme_2021$MY.NOTES.1, fixed=TRUE) | grepl("chronic", ocme_2021$CauseA, fixed=TRUE) | grepl( "Chronic", ocme_2021$CauseA, fixed=TRUE) | grepl( "drug user", ocme_2021$CauseA, fixed=TRUE) | grepl( "user", ocme_2021$CauseA, fixed=TRUE) | grepl( "snort", ocme_2021$CauseA, fixed=TRUE) | grepl( "snorts", ocme_2021$CauseA, fixed=TRUE) | grepl( "drug abuse", ocme_2021$CauseA, fixed=TRUE) | grepl( "addict", ocme_2021$CauseA, fixed=TRUE) | grepl( "addicted", ocme_2021$CauseA, fixed=TRUE) | grepl( "rehab", ocme_2021$CauseA, fixed=TRUE) | grepl( "sober house ", ocme_2021$CauseA, fixed=TRUE) | grepl( "clean", ocme_2021$CauseA, fixed=TRUE) | grepl( "abuse", ocme_2021$CauseA, fixed=TRUE))
+
+sprintf("There were at least %d people with known chronic use out of %d decedents in 2021, which is %f percent of all decedents.", nrow(chronic2021), nrow(ocme_2021), (nrow(chronic2021)/nrow(ocme_2021))*100)
+
+
+```
+
+#### 2022
+
+```{r chronicUse2022, echo=FALSE, message=FALSE, warning=FALSE}
+# find entries in either "MY.NOTES" or "AmendedImmediateCauseofDeath" with the words "chronic", "drug user", "drug use", "user", "snort", "shorts" or "drug abuse"
+
+chronic2022 <- subset(ocme_2022, grepl("chronic", ocme_2022$MY.NOTES, fixed=TRUE) | grepl( "Chronic", ocme_2022$MY.NOTES, fixed=TRUE) | grepl( "drug user", ocme_2022$MY.NOTES, fixed=TRUE) | grepl( "user", ocme_2022$MY.NOTES, fixed=TRUE) | grepl( "snort", ocme_2022$MY.NOTES, fixed=TRUE) | grepl( "snorts", ocme_2022$MY.NOTES, fixed=TRUE) | grepl( "drug abuse", ocme_2022$MY.NOTES, fixed=TRUE) | grepl( "addict", ocme_2022$MY.NOTES, fixed=TRUE) | grepl( "addicted", ocme_2022$MY.NOTES, fixed=TRUE) | grepl( "rehab", ocme_2022$MY.NOTES, fixed=TRUE) | grepl( "sober house ", ocme_2022$MY.NOTES, fixed=TRUE) | grepl( "clean", ocme_2022$MY.NOTES, fixed=TRUE) | grepl( "abuse", ocme_2022$MY.NOTES, fixed=TRUE) | grepl("chronic", ocme_2022$Cause.A, fixed=TRUE) | grepl( "Chronic", ocme_2022$Cause.A, fixed=TRUE) | grepl( "drug user", ocme_2022$Cause.A, fixed=TRUE) | grepl( "user", ocme_2022$Cause.A, fixed=TRUE) | grepl( "snort", ocme_2022$Cause.A, fixed=TRUE) | grepl( "snorts", ocme_2022$Cause.A, fixed=TRUE) | grepl( "drug abuse", ocme_2022$Cause.A, fixed=TRUE) | grepl( "addict", ocme_2022$Cause.A, fixed=TRUE) | grepl( "addicted", ocme_2022$Cause.A, fixed=TRUE) | grepl( "rehab", ocme_2022$Cause.A, fixed=TRUE) | grepl( "sober house ", ocme_2022$Cause.A, fixed=TRUE) | grepl( "clean", ocme_2022$Cause.A, fixed=TRUE) | grepl( "abuse", ocme_2022$Cause.A, fixed=TRUE))
+
+sprintf("There were at least %d people with known chronic use out of %d decedents in 2022, which is %f percent of all decedents.", nrow(chronic2022), nrow(ocme_2022), (nrow(chronic2022)/nrow(ocme_2022))*100)
+
+
+```
+
+### Who did decedents live with? {.tabset} 
+
+Please note: this field and all fields explored below are only available up to 2020. 
+
+#### 2018
+
+```{r liveAlone2018, echo=FALSE, message=FALSE, warning=FALSE}
+#subset all cases where people died in their own house
+residence2018 <- subset(ocme_2018, residence_address_updated == injury_address_updated)
+
+#table(residence2018$OTHERS...INJURY.LOCATION..A..alone.F..fam.ptner.N.nonfamM.missing.N.A.)
+
+residence2018$roommates <- ifelse(residence2018$OTHERS...INJURY.LOCATION..A..alone.F..fam.ptner.N.nonfamM.missing.N.A. %in% c("", "777", "999", "M"), "Unknown", ifelse(residence2018$OTHERS...INJURY.LOCATION..A..alone.F..fam.ptner.N.nonfamM.missing.N.A. %in% c("A", "A?"), "Alone", ifelse(residence2018$OTHERS...INJURY.LOCATION..A..alone.F..fam.ptner.N.nonfamM.missing.N.A. == "F", "Family/partner", ifelse(residence2018$OTHERS...INJURY.LOCATION..A..alone.F..fam.ptner.N.nonfamM.missing.N.A. == "N", "Non-family", ifelse(residence2018$OTHERS...INJURY.LOCATION..A..alone.F..fam.ptner.N.nonfamM.missing.N.A. %in% c("F/N", "N/F"), "Family and non-family", residence2018$OTHERS...INJURY.LOCATION..A..alone.F..fam.ptner.N.nonfamM.missing.N.A.)))))
+
+liveAlone_2018 <-ggplot(data=residence2018, aes(x=roommates, ..count..)) + 
+      geom_bar(aes(fill = roommates), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black")+ ggtitle("Living arrangements for 2018 opioid-detected deaths in own residence")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none")
+
+liveAlone_2018
+
+ggsave(plot=liveAlone_2018, filename = "images/statewide/live_alone_2018.png", width = 10, height = 8)
+
+liveAlone_2018_prop <-ggplot(data=residence2018, aes(x=roommates, ..count..)) + 
+      geom_bar(aes(fill = roommates), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = round(..count../nrow(residence2018),3)), stat = "count", vjust = 0, colour = "black")+ ggtitle("Living arrangements for 2018 opioid-detected deaths in own residence")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none")
+
+liveAlone_2018_prop
+
+ggsave(plot=liveAlone_2018_prop, filename = "images/statewide/live_alone_2018_prop.png", width = 10, height = 8)
+
+```
+
+#### 2019
+
+```{r liveAlone2019, echo=FALSE, message=FALSE, warning=FALSE}
+#subset all cases where people died in their own house
+residence2019 <- subset(ocme_2019, Injury.Address1 == Residence.Address1)
+
+#table(residence2019$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfamM.missing.N.A.)
+
+residence2019$roommates <- ifelse(residence2019$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfamM.missing.N.A. %in% c("lived w str & her family", "F?", "F", "TOC 59; pronounced 119"), "Family/partner", ifelse(residence2019$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfamM.missing.N.A. %in% c("unclear", "unspecified", "", "2", "999"), "Unknown", ifelse(residence2019$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfamM.missing.N.A. == "A", "Alone", ifelse(residence2019$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfamM.missing.N.A. == "M", "Unknown", ifelse(residence2019$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfamM.missing.N.A. %in% c("N"), "Non-family", ifelse(residence2019$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfamM.missing.N.A. == "F,N", "Family and non-family", residence2019$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfamM.missing.N.A.))))))
+
+liveAlone_2019 <-ggplot(data=residence2019, aes(x=roommates, ..count..)) + 
+      geom_bar(aes(fill = roommates), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black")+ ggtitle("Living arrangements for 2019 opioid-detected deaths in own residence")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none")
+
+liveAlone_2019
+
+ggsave(plot=liveAlone_2019, filename = "images/statewide/live_alone_2019.png", width = 10, height = 8)
+
+liveAlone_2019_prop <-ggplot(data=residence2019, aes(x=roommates, ..count..)) + 
+      geom_bar(aes(fill = roommates), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = round(..count../nrow(residence2019),3)), stat = "count", vjust = 0, colour = "black")+ ggtitle("Living arrangements for 2019 opioid-detected deaths in own residence")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none")
+
+liveAlone_2019_prop
+
+ggsave(plot=liveAlone_2019_prop, filename = "images/statewide/live_alone_2019_prop.png", width = 10, height = 8)
+
+```
+
+#### 2020
+
+```{r liveAlone2020, echo=FALSE, message=FALSE, warning=FALSE}
+#subset all cases where people died in their own house
+residence2020 <- subset(ocme_2020, Injury.Address1 == Residence.Address1)
+
+#table(residence2020$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfam.M.missing.N.A.)
+
+residence2020$roommates <- ifelse(residence2020$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfam.M.missing.N.A. %in% c(" F ", "F?", "F"), "Family/partner", ifelse(residence2020$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfam.M.missing.N.A. %in% c("unclear", "unspecified", "", "2"), "Unknown", ifelse(residence2020$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfam.M.missing.N.A. == "A", "Alone", ifelse(residence2020$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfam.M.missing.N.A. == "M", "Unknown", ifelse(residence2020$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfam.M.missing.N.A. %in% c("N", "N "), "Non-family", ifelse(residence2020$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfam.M.missing.N.A. == "F/N", "Family and non-family", residence2020$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfam.M.missing.N.A.))))))
+
+liveAlone_2020 <-ggplot(data=residence2020, aes(x=roommates, ..count..)) + 
+      geom_bar(aes(fill = roommates), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black")+ ggtitle("Living arrangements for 2020 opioid-detected deaths in own residence")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none")
+
+liveAlone_2020
+
+ggsave(plot=liveAlone_2020, filename = "images/statewide/live_alone_2020.png", width = 10, height = 8)
+
+liveAlone_2020_prop <-ggplot(data=residence2020, aes(x=roommates, ..count..)) + 
+      geom_bar(aes(fill = roommates), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = round(..count../nrow(residence2020),3)), stat = "count", vjust = 0, colour = "black")+ ggtitle("Living arrangements for 2020 opioid-detected deaths in own residence")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none")
+
+liveAlone_2020_prop
+
+ggsave(plot=liveAlone_2020_prop, filename = "images/statewide/live_alone_2020_prop.png", width = 10, height = 8)
+
+```
+
+
+### % cases found in <24h and >=24h {.tabset}
+
+#### 2018
+
+
+```{r within24h2018, echo=FALSE, message=FALSE, warning=FALSE}
+#remove missing/unknown values -- the "1814" entry also seems to be missing values
+ocme_times_2018 <- subset(ocme_2018, !(Difference..CALCULATED..Number.for..24h.based.on.either.pronounce.time.or.info.in.narrative..whichever.is.least..ROUND.TO.NEAREST.30.MIN..TIME.ELAPSED.AS.NUMBER..min..h..d..w.mo. %in% c("777", "999", "1814", "unclear", "unknown")))
+
+#it's easier to find items indicating >24h than <24h, so I'll just use that to subset for simplicity
+
+within24h2018 <- subset(ocme_times_2018, !(Difference..CALCULATED..Number.for..24h.based.on.either.pronounce.time.or.info.in.narrative..whichever.is.least..ROUND.TO.NEAREST.30.MIN..TIME.ELAPSED.AS.NUMBER..min..h..d..w.mo. %in% c("27.5", "~1d", "~1.5d", "18h", "~1 day", "~2 days", "~2wks", "~7 months", "< 1 week", "<2d", "> 1 week", "> 24h", ">1d (44h)", ">24 h (days)", ">24h", ">24h (25.5h)", ">2d", "1 week", "1 wk prior", "1-2d", "1w", "2 days", "17d", "2 days, lka 1700 3/9/2018", "2 or 3d", "2 weeks", "2.5d", "2-3 days", "2-4 days", "25.5h", "2-5d?", "25h", "26.5h", "26h", "28h", "29.5h", "29h", "2d", "2d prior", "2wk", "2wks", "3 days", "3.5d", "3-21d prior", "32h", "3-4 days", "3-4d", "3d", "3d prior", "4 days", "4.5d", "4d", "4d prior", "5d", "6d", "8 days", "days", "likely >24hr from walking into bookstore to disc")))
+
+over24h2018 <- subset(ocme_times_2018, Difference..CALCULATED..Number.for..24h.based.on.either.pronounce.time.or.info.in.narrative..whichever.is.least..ROUND.TO.NEAREST.30.MIN..TIME.ELAPSED.AS.NUMBER..min..h..d..w.mo. %in% c("27.5", "~1d", "~1.5d", "18h", "~1 day", "~2 days", "~2wks", "~7 months", "< 1 week", "<2d", "> 1 week", "> 24h", ">1d (44h)", ">24 h (days)", ">24h", ">24h (25.5h)", ">2d", "1 week", "1 wk prior", "1-2d", "1w", "2 days", "17d", "2 days, lka 1700 3/9/2018", "2 or 3d", "2 weeks", "2.5d", "2-3 days", "2-4 days", "25.5h", "2-5d?", "25h", "26.5h", "26h", "28h", "29.5h", "29h", "2d", "2d prior", "2wk", "2wks", "3 days", "3.5d", "3-21d prior", "32h", "3-4 days", "3-4d", "3d", "3d prior", "4 days", "4.5d", "4d", "4d prior", "5d", "6d", "8 days", "days", "likely >24hr from walking into bookstore to disc"))
+
+
+sprintf("There were %d people found within 24 hours, which is %f of all decedents.", nrow(within24h2018), nrow(within24h2018)/nrow(ocme_2018))
+
+sprintf("There were %d people found in over 24 hours, which is %f of all decedents.", nrow(over24h2018), nrow(over24h2018)/nrow(ocme_2018))
+
+```
+
+#### 2019
+
+```{r within24h2019, echo=FALSE, message=FALSE, warning=FALSE}
+#remove missing/unknown values -- the "<1h but decomp" entry seems like someone didn't realize the person was dead when they reported them as "last alive" because decomposition will work slower than that, even in the summer
+ocme_times_2019 <- subset(ocme_2019, !(Difference..CALCULATED..Number.for..24h.based.on.either.pronounce.time.or.info.in.narrative..whichever.is.least..ROUND.TO.NEAREST.30.MIN..TIME.ELAPSED.AS.NUMBER..min..h..d..w.mo. %in% c("777", "999", "??", "unclear", "unknown", "<1h (but decomp)", "")))
+
+#it's easier to find items indicating >24h than <24h, so I'll just use that to subset for simplicity
+
+#to make my life easier this time i subsetted everything using filter on excel, and then I used https://www.commontools.org/tool/replace-new-lines-with-commas-40 to turn into a comma separated list, then I put quotes around it using https://onlinetools.com/list/quote-list-items. While I'm aware I could've done this with regexes I didn't feel like it lol
+
+within24h2019 <- subset(ocme_times_2019, !(Difference..CALCULATED..Number.for..24h.based.on.either.pronounce.time.or.info.in.narrative..whichever.is.least..ROUND.TO.NEAREST.30.MIN..TIME.ELAPSED.AS.NUMBER..min..h..d..w.mo. %in% unique(c("38.5h", "2d", "2d", "4d", "almost 2d prior", "2d prior", "25h", "3d prior", ">1 mo", ">1d", "5d", "3d", "3d", "1wk", "4d", "10d", "4d", "2d prior", "2d prior", "4d", "6d", "4d", "3d", "days", "10d prior", "25.5h", "3d", "3d", "26h", "2 weeks", "3d prior", "7d prior", "3d", "2d prior", "6d prior", "3d", "2d prior", "2d prior", "2d", "3d", "5d", "25.5h", "2wks prior", "25.5h", "several days", "8d", "23d", "2d prior", "2d prior", "~26h", "9d prior", "few days ago", "<4d", "26h", "4d", "36h", ">36h", "4d", "25h", "8d", "30h", "long time", "5d", "3d", "8d", "3d prior", "3d", "3d", "3d", "2d prior", "2d prior", "2d prior", "3d prior", "~2d prior", "4d prior", "few days ago", "3d prior", "3d prior", "few days ago", "2d prior", "2d prior", "several days", "3d prior", "3d", ">24h", "2d prior", ">2d", "4d prior", "21 or 46h", "3d prior", "2d prior", "3.5d", "3d prior", "28.5h", "3d prior", "3d prior", "2d prior", "2d prior", "5d priot", "5d prior", "7d", "4d prior", "26.5h", "2wks prior", "6d prior", "3d prior", "3d prior", ">24h", "days?", "3d prior", "2d prior", "26h", "3d prior", "2d prior", "2d prior", "5-6d prior", "3d prior", "5d prior", "2d?", "31h", "3d prior", "2d prior", "3d prior", "2d prior", "2d prior", "2d prior", "3d prior", "2d prior", "2d prior", "~28h", "several days", ">24h", "8d", "2d prior", "2d prior", "3d prior", "3d prior", "2d prior", "4d prior", "25h", "6d prior", "2d prior", "2wks prior", "2d prior", "2d prior", "32.5h", "2d prior", "5d", "2d prior", "5d prior", "4d prior", "37h", "2d prior", "2d prior", "2d prior", "2d prior", "3d prior", "3d prior", "2d", "3d", "2d prior", "6d prior", "2d prior", "4d", "24.5h", "3d prior", "2d prior", "5d prior", "2-3 wks", "3d prior", "4d prior", "2d prior", "3d prior", "6d prior", "3d prior", "2d prior", "2d prior", "25h", "~1.5d", ">24h", "several days", "2d prior", "1 month", "32.5h", "9d prior", "3d prior", "4d", "3d prior", "2d prior", "30h", "2d prior", "2 wks", "3d prior", "2d prior", "2d prior", "2d prior", "4d", ""))))
+
+over24h2019 <- subset(ocme_times_2019, Difference..CALCULATED..Number.for..24h.based.on.either.pronounce.time.or.info.in.narrative..whichever.is.least..ROUND.TO.NEAREST.30.MIN..TIME.ELAPSED.AS.NUMBER..min..h..d..w.mo. %in% unique(c("38.5h", "2d", "2d", "4d", "almost 2d prior", "2d prior", "25h", "3d prior", ">1 mo", ">1d", "5d", "3d", "3d", "1wk", "4d", "10d", "4d", "2d prior", "2d prior", "4d", "6d", "4d", "3d", "days", "10d prior", "25.5h", "3d", "3d", "26h", "2 weeks", "3d prior", "7d prior", "3d", "2d prior", "6d prior", "3d", "2d prior", "2d prior", "2d", "3d", "5d", "25.5h", "2wks prior", "25.5h", "several days", "8d", "23d", "2d prior", "2d prior", "~26h", "9d prior", "few days ago", "<4d", "26h", "4d", "36h", ">36h", "4d", "25h", "8d", "30h", "long time", "5d", "3d", "8d", "3d prior", "3d", "3d", "3d", "2d prior", "2d prior", "2d prior", "3d prior", "~2d prior", "4d prior", "few days ago", "3d prior", "3d prior", "few days ago", "2d prior", "2d prior", "several days", "3d prior", "3d", ">24h", "2d prior", ">2d", "4d prior", "21 or 46h", "3d prior", "2d prior", "3.5d", "3d prior", "28.5h", "3d prior", "3d prior", "2d prior", "2d prior", "5d priot", "5d prior", "7d", "4d prior", "26.5h", "2wks prior", "6d prior", "3d prior", "3d prior", ">24h", "days?", "3d prior", "2d prior", "26h", "3d prior", "2d prior", "2d prior", "5-6d prior", "3d prior", "5d prior", "2d?", "31h", "3d prior", "2d prior", "3d prior", "2d prior", "2d prior", "2d prior", "3d prior", "2d prior", "2d prior", "~28h", "several days", ">24h", "8d", "2d prior", "2d prior", "3d prior", "3d prior", "2d prior", "4d prior", "25h", "6d prior", "2d prior", "2wks prior", "2d prior", "2d prior", "32.5h", "2d prior", "5d", "2d prior", "5d prior", "4d prior", "37h", "2d prior", "2d prior", "2d prior", "2d prior", "3d prior", "3d prior", "2d", "3d", "2d prior", "6d prior", "2d prior", "4d", "24.5h", "3d prior", "2d prior", "5d prior", "2-3 wks", "3d prior", "4d prior", "2d prior", "3d prior", "6d prior", "3d prior", "2d prior", "2d prior", "25h", "~1.5d", ">24h", "several days", "2d prior", "1 month", "32.5h", "9d prior", "3d prior", "4d", "3d prior", "2d prior", "30h", "2d prior", "2 wks", "3d prior", "2d prior", "2d prior", "2d prior", "4d", "")))
+
+sprintf("There were %d people found within 24 hours, which is %f of all decedents.", nrow(within24h2019), nrow(within24h2019)/nrow(ocme_2019))
+
+sprintf("There were %d people found in over 24 hours, which is %f of all decedents.", nrow(over24h2019), nrow(over24h2019)/nrow(ocme_2019))
+
+```
+
+#### 2020
+
+```{r within24h2020, echo=FALSE, message=FALSE, warning=FALSE}
+ocme_times_2020 <- subset(ocme_2020, !(Difference..CALCULATED..Number.for..24h.based.on.either.pronounce.time.or.info.in.narrative..whichever.is.least..ROUND.TO.NEAREST.30.MIN..TIME.ELAPSED.AS.NUMBER..min..h..d..w.mo. %in% c("N/A", "unclear", "unknown", "")))
+
+
+#it's easier to find items indicating >24h than <24h, so I'll just use that to subset for simplicity
+
+within24h2020 <- subset(ocme_times_2020, !(Difference..CALCULATED..Number.for..24h.based.on.either.pronounce.time.or.info.in.narrative..whichever.is.least..ROUND.TO.NEAREST.30.MIN..TIME.ELAPSED.AS.NUMBER..min..h..d..w.mo. %in% c(" 2d ", "\"a few days\"", "~1 day", "~24h", "<2d", ">24h", ">3d", ">5d", "1-2 weeks ago", "1 week", "1 week ", "1.5d", "10d", "10d prior", "11d", "12 d", "12d", "15d prior", "19d", "1d", "1wk", "2-3 days", "2-3d prior", "2-7d", "2 weeks prior", "2.5mos", "21d", "24 h 18 min", "24.5 h", "24.5h", "25.5h", "25h", "26h", "27h", "28h", "29.5h", "2d", "2d prior", "2d?", "2wks prior", "3-4d", "30.5h", "30h", "37h", "3d prior", "40h", "41d", "4d", "4d prior", "5d", "5d prior", "6d prior", "7d", "7d prior", "7mos", "9d", "9d prior", "at least 2d", "days", "few days ago", "probably 25h")))
+
+over24h2020 <- subset(ocme_times_2020, Difference..CALCULATED..Number.for..24h.based.on.either.pronounce.time.or.info.in.narrative..whichever.is.least..ROUND.TO.NEAREST.30.MIN..TIME.ELAPSED.AS.NUMBER..min..h..d..w.mo. %in% c(" 2d ", "\"a few days\"", "~1 day", "~24h", "<2d", ">24h", ">3d", ">5d", "1-2 weeks ago", "1 week", "1 week ", "1.5d", "10d", "10d prior", "11d", "12 d", "12d", "15d prior", "19d", "1d", "1wk", "2-3 days", "2-3d prior", "2-7d", "2 weeks prior", "2.5mos", "21d", "24 h 18 min", "24.5 h", "24.5h", "25.5h", "25h", "26h", "27h", "28h", "29.5h", "2d", "2d prior", "2d?", "2wks prior", "3-4d", "30.5h", "30h", "37h", "3d prior", "40h", "41d", "4d", "4d prior", "5d", "5d prior", "6d prior", "7d", "7d prior", "7mos", "9d", "9d prior", "at least 2d", "days", "few days ago", "probably 25h"))
+
+sprintf("There were %d people found within 24 hours, which is %f of all decedents.", nrow(within24h2020), nrow(within24h2020)/nrow(ocme_2020))
+
+sprintf("There were %d people found in over 24 hours, which is %f of all decedents.", nrow(over24h2020), nrow(over24h2020)/nrow(ocme_2020))
+```
+
+
+### Race of <24h and >=24h decedents {.tabset}
+
+#### 2018
+
+**Under 24h**
+
+```{r within24hrace2018, echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(data=within24h2018, aes(x=race_numeric_words, ..count..)) + 
+      geom_bar(aes(fill = race_numeric_words), position = "dodge") + scale_fill_brewer(palette="Spectral") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black")+ ggtitle("Racial distribution for 2018 opioid-detected overdose deaths found within 24h")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+withinRaceProp2018 <- ggplot(data=within24h2018, aes(x=race_numeric_words, ..count..)) + 
+      geom_bar(aes(fill = race_numeric_words), position = "dodge") + scale_fill_brewer(palette="Spectral") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = round(..count../nrow(within24h2018), 3)), stat = "count", vjust = 0, colour = "black")+ ggtitle("Racial distribution for 2018 opioid-detected overdose deaths found within 24h")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+withinRaceProp2018
+
+#save this one for the presentation
+ggsave(plot=withinRaceProp2018, filename = "images/statewide/withinRaceProp2018.png", width = 10, height = 8)
+
+#save this one for robert mtg
+#ggsave(plot=raceProp2020, filename = "images/statewide/race_proportions_2020.png", width = 10, height = 8)
+
+```
+
+**Over 24h**
+
+```{r over24hrace2018, echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(data=over24h2018, aes(x=race_numeric_words, ..count..)) + 
+      geom_bar(aes(fill = race_numeric_words), position = "dodge") + scale_fill_brewer(palette="Spectral") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black")+ ggtitle("Racial distribution for 2018 opioid-detected overdose deaths found in >24h")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+overRaceProp2018 <- ggplot(data=over24h2018, aes(x=race_numeric_words, ..count..)) + 
+      geom_bar(aes(fill = race_numeric_words), position = "dodge") + scale_fill_brewer(palette="Spectral") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = round(..count../nrow(over24h2018), 3)), stat = "count", vjust = 0, colour = "black")+ ggtitle("Racial distribution for 2018 opioid-detected overdose deaths found in >24h")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+overRaceProp2018
+
+#save this one for the presentation
+ggsave(plot=overRaceProp2018, filename = "images/statewide/overRaceProp2018.png", width = 10, height = 8)
+
+#save this one for robert mtg
+#ggsave(plot=raceProp2020, filename = "images/statewide/race_proportions_2020.png", width = 10, height = 8)
+
+```
+
+#### 2019
+
+**Under 24h**
+
+```{r within24hrace2019, echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(data=within24h2019, aes(x=race_numeric_words, ..count..)) + 
+      geom_bar(aes(fill = race_numeric_words), position = "dodge") + scale_fill_brewer(palette="Spectral") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black")+ ggtitle("Racial distribution for 2019 opioid-detected overdose deaths found within 24h")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+withinRaceProp2019 <- ggplot(data=within24h2019, aes(x=race_numeric_words, ..count..)) + 
+      geom_bar(aes(fill = race_numeric_words), position = "dodge") + scale_fill_brewer(palette="Spectral") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = round(..count../nrow(within24h2019), 3)), stat = "count", vjust = 0, colour = "black")+ ggtitle("Racial distribution for 2019 opioid-detected overdose deaths found within 24h")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+withinRaceProp2019
+
+#save this one for the presentation
+ggsave(plot=withinRaceProp2019, filename = "images/statewide/withinRaceProp2019.png", width = 10, height = 8)
+
+#save this one for robert mtg
+#ggsave(plot=raceProp2020, filename = "images/statewide/race_proportions_2020.png", width = 10, height = 8)
+
+```
+
+**Over 24h**
+
+```{r over24hrace2019, echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(data=over24h2019, aes(x=race_numeric_words, ..count..)) + 
+      geom_bar(aes(fill = race_numeric_words), position = "dodge") + scale_fill_brewer(palette="Spectral") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black")+ ggtitle("Racial distribution for 2019 opioid-detected overdose deaths found in >24h")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+overRaceProp2019 <- ggplot(data=over24h2019, aes(x=race_numeric_words, ..count..)) + 
+      geom_bar(aes(fill = race_numeric_words), position = "dodge") + scale_fill_brewer(palette="Spectral") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = round(..count../nrow(over24h2019), 3)), stat = "count", vjust = 0, colour = "black")+ ggtitle("Racial distribution for 2019 opioid-detected overdose deaths found in >24h")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+overRaceProp2019
+
+#save this one for the presentation
+ggsave(plot=overRaceProp2019, filename = "images/statewide/overRaceProp2019.png", width = 10, height = 8)
+
+#save this one for robert mtg
+#ggsave(plot=raceProp2020, filename = "images/statewide/race_proportions_2020.png", width = 10, height = 8)
+
+```
+
+#### 2020
+
+**Under 24h**
+
+```{r within24hrace2020, echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(data=within24h2020, aes(x=race_numeric_words, ..count..)) + 
+      geom_bar(aes(fill = race_numeric_words), position = "dodge") + scale_fill_brewer(palette="Spectral") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black")+ ggtitle("Racial distribution for 2020 opioid-detected overdose deaths found within 24h")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+withinRaceProp2020 <- ggplot(data=within24h2020, aes(x=race_numeric_words, ..count..)) + 
+      geom_bar(aes(fill = race_numeric_words), position = "dodge") + scale_fill_brewer(palette="Spectral") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = round(..count../nrow(within24h2020), 3)), stat = "count", vjust = 0, colour = "black")+ ggtitle("Racial distribution for 2020 opioid-detected overdose deaths found within 24h")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+withinRaceProp2020
+
+#save this one for the presentation
+ggsave(plot=withinRaceProp2020, filename = "images/statewide/withinRaceProp2020.png", width = 10, height = 8)
+
+#save this one for robert mtg
+#ggsave(plot=raceProp2020, filename = "images/statewide/race_proportions_2020.png", width = 10, height = 8)
+
+```
+
+**Over 24h**
+
+```{r over24hrace2020, echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(data=over24h2020, aes(x=race_numeric_words, ..count..)) + 
+      geom_bar(aes(fill = race_numeric_words), position = "dodge") + scale_fill_brewer(palette="Spectral") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black")+ ggtitle("Racial distribution for 2020 opioid-detected overdose deaths found in >24h")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+overRaceProp2020 <- ggplot(data=over24h2020, aes(x=race_numeric_words, ..count..)) + 
+      geom_bar(aes(fill = race_numeric_words), position = "dodge") + scale_fill_brewer(palette="Spectral") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = round(..count../nrow(over24h2020), 3)), stat = "count", vjust = 0, colour = "black")+ ggtitle("Racial distribution for 2020 opioid-detected overdose deaths found in >24h")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none") 
+
+overRaceProp2020
+
+#save this one for the presentation
+ggsave(plot=overRaceProp2020, filename = "images/statewide/overRaceProp2020.png", width = 10, height = 8)
+
+#save this one for robert mtg
+#ggsave(plot=raceProp2020, filename = "images/statewide/race_proportions_2020.png", width = 10, height = 8)
+
+```
+
+### Town of OD of <24h and >=24h decedents {.tabset}
+
+#### 2018
+
+**Under 24h**
+
+```{r town24h2018, echo=FALSE, message=FALSE, warning=FALSE}
+#fixed axis text size in theme() using https://stackoverflow.com/questions/65956833/ggplot2-how-to-dynamically-wrap-resize-rescale-x-axis-labels-so-they-wont-over
+
+town_24h_2018 <- ggplot(data=within24h2018, aes(x=injury_city_revised, ..count..)) + 
+      geom_bar(aes(fill = ..count..), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = -0.3, colour = "red", size = 3/.pt) + ggtitle("City/town of OD for 2018 opioid-detected deaths found within 24h")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 3))
+
+town_24h_2018
+
+ggsave(plot=town_24h_2018, filename = "images/statewide/overdoses_by_town_24h_2018.png", width = 10, height = 8)
+
+#find the number of ODs in each town by aggregating the indicator var for each town, from https://stackoverflow.com/questions/60961960/how-do-i-sum-a-column-with-categorical-vairables-in-r
+
+# create a new dataframe that we can manipulate without messing up within24h2018
+
+within24h2018prop <- within24h2018 %>% group_by(injury_city_revised) %>% summarise_at(vars(fatal), sum)
+
+# find towns that don't have anyone discovered within 24h and add them into the df
+# i have to use unique() so I don't get repeats
+
+missingtowns2018 <- setdiff(unique(ocme_2018$injury_city_revised), within24h2018prop$injury_city_revised)
+
+for (i in missingtowns2018) {
+  
+  # create row for that town and a 0 next to number of fatalities discovered in 24h
+  newtown <- c(i, 0)
+  
+  # add to within24h2018prop
+  within24h2018prop = rbind(within24h2018prop, newtown)
+  
+}
+
+# convert the within24h2018prop fatals into numerics because for some reason they're strings
+within24h2018prop$fatal <- as.numeric(within24h2018prop$fatal)
+
+# aggregate fatalities for overall deaths [not just discovered in 24h]
+ocme_2018_agg24h <- ocme_2018 %>% group_by(injury_city_revised) %>% summarise_at(vars(fatal), sum)
+
+# rename the danbury_2018_agg24h "fatal" column because it'll get confusing otherwise when merged
+names(ocme_2018_agg24h)[names(ocme_2018_agg24h) == 'fatal'] <- 'total'
+
+# merge with within24h2018prop to have a column with the actual number of deaths
+ocme_2018_24h_merged <- merge(within24h2018prop, ocme_2018_agg24h, by="injury_city_revised")
+
+# get the proportion of fatalities discovered in 24h, multiply by 100 so we have a percentage
+ocme_2018_24h_merged$Prop <- round((ocme_2018_24h_merged$fatal/ocme_2018_24h_merged$total)*100, digits=2)
+
+# convert any NaN to 0 -- from https://stackoverflow.com/questions/18142117/how-to-replace-nan-value-with-zero-in-a-huge-data-frame
+
+ocme_2018_24h_merged$Prop[is.nan(ocme_2018_24h_merged$Prop)] <- 0
+
+# Plot the proportion of people discovered within 24h
+# had an issue with the fill, edited with http://www.sthda.com/english/wiki/ggplot2-barplots-quick-start-guide-r-software-and-data-visualization
+# needed to change the font size for the text overlay, used https://stackoverflow.com/questions/25061822/ggplot-geom-text-font-size-control
+
+town_2018_24h_capita <- ggplot(data=ocme_2018_24h_merged, aes(x=injury_city_revised, y=Prop, fill=Prop, position = "dodge")) + 
+      geom_bar(stat="Identity") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = Prop), vjust = -0.3, colour = "red", size = 3/.pt) + ggtitle("Percent of fatalities discovered in under 24 hours by town in 2018")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 3))
+
+town_2018_24h_capita
+
+ggsave(plot=town_2018_24h_capita, filename = "images/statewide/overdoses_by_town_prop_24h_2018.png", width = 10, height = 8)
+
+```
+
+**Over 24h**
+
+```{r townover24h2018, echo=FALSE, message=FALSE, warning=FALSE}
+#fixed axis text size in theme() using https://stackoverflow.com/questions/65956833/ggplot2-how-to-dynamically-wrap-resize-rescale-x-axis-labels-so-they-wont-over
+
+town_over24h_2018 <- ggplot(data=over24h2018, aes(x=injury_city_revised, ..count..)) + 
+      geom_bar(aes(fill = ..count..), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = -0.3, colour = "red", size =6/.pt) + ggtitle("City/town of OD for 2018 opioid-detected deaths found in over 24h")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size =6))
+
+town_over24h_2018
+
+ggsave(plot=town_over24h_2018, filename = "images/statewide/overdoses_by_town_over24h_2018.png", width = 10, height = 8)
+
+#find the number of ODs in each town by aggregating the indicator var for each town, from https://stackoverflow.com/questions/60961960/how-do-i-sum-a-column-with-categorical-vairables-in-r
+
+# create a new dataframe that we can manipulate without messing up within24h2018
+
+over24h2018prop <- over24h2018 %>% group_by(injury_city_revised) %>% summarise_at(vars(fatal), sum)
+
+# find towns that don't have anyone discovered within 24h and add them into the df
+
+missingtowns2018 <- setdiff(unique(ocme_2018$injury_city_revised), over24h2018prop$injury_city_revised)
+
+for (i in missingtowns2018) {
+  
+  # create row for that town and a 0 next to number of fatalities discovered in 24h
+  newtown <- c(i, 0)
+  
+  # add to within24h2018prop
+  over24h2018prop = rbind(over24h2018prop, newtown)
+  
+}
+
+# convert the within24h2018prop fatals into numerics because for some reason they're strings
+over24h2018prop$fatal <- as.numeric(over24h2018prop$fatal)
+
+# aggregate fatalities for overall deaths [not just discovered in 24h]
+ocme_2018_agg24h <- ocme_2018 %>% group_by(injury_city_revised) %>% summarise_at(vars(fatal), sum)
+
+# rename the danbury_2018_agg24h "fatal" column because it'll get confusing otherwise when merged
+names(ocme_2018_agg24h)[names(ocme_2018_agg24h) == 'fatal'] <- 'total'
+
+# merge with within24h2018prop to have a column with the actual number of deaths
+ocme_2018_over24h_merged <- merge(over24h2018prop, ocme_2018_agg24h, by="injury_city_revised")
+
+# get the proportion of fatalities discovered in 24h, multiply by 100 so we have a percentage
+ocme_2018_over24h_merged$Prop <- round((ocme_2018_over24h_merged$fatal/ocme_2018_over24h_merged$total)*100, digits=2)
+
+# convert any NaN to 0 -- from https://stackoverflow.com/questions/18142117/how-to-replace-nan-value-with-zero-in-a-huge-data-frame
+
+ocme_2018_over24h_merged$Prop[is.nan(ocme_2018_over24h_merged$Prop)] <- 0
+
+# Plot the proportion of people discovered within 24h
+# had an issue with the fill, edited with http://www.sthda.com/english/wiki/ggplot2-barplots-quick-start-guide-r-software-and-data-visualization
+# needed to change the font size for the text overlay, used https://stackoverflow.com/questions/25061822/ggplot-geom-text-font-size-control
+
+town_2018_over24h_capita <- ggplot(data=ocme_2018_over24h_merged, aes(x=injury_city_revised, y=Prop, fill=Prop, position = "dodge")) + 
+      geom_bar(stat="Identity") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = Prop), vjust = -0.3, colour = "red", size = 3/.pt) + ggtitle("Percent of fatalities discovered in over 24 hours by town in 2018")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 3))
+
+town_2018_over24h_capita
+
+ggsave(plot=town_2018_over24h_capita, filename = "images/statewide/overdoses_by_town_prop_over24h_2018.png", width = 10, height = 8)
+ 
+```
+
+#### 2019
+
+**Under 24h**
+
+```{r town24h2019, echo=FALSE, message=FALSE, warning=FALSE}
+#fixed axis text size in theme() using https://stackoverflow.com/questions/65956833/ggplot2-how-to-dynamically-wrap-resize-rescale-x-axis-labels-so-they-wont-over
+
+town_24h_2019 <- ggplot(data=within24h2019, aes(x=injury_city_revised, ..count..)) + 
+      geom_bar(aes(fill = ..count..), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = -0.3, colour = "red", size = 3/.pt) + ggtitle("City/town of OD for 2019 opioid-detected deaths found within 24h")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 3))
+
+town_24h_2019
+
+ggsave(plot=town_24h_2019, filename = "images/statewide/overdoses_by_town_24h_2019.png", width = 10, height = 8)
+
+#find the number of ODs in each town by aggregating the indicator var for each town, from https://stackoverflow.com/questions/60961960/how-do-i-sum-a-column-with-categorical-vairables-in-r
+
+# create a new dataframe that we can manipulate without messing up within24h2018
+
+within24h2019prop <- within24h2019 %>% group_by(injury_city_revised) %>% summarise_at(vars(fatal), sum)
+
+# find towns that don't have anyone discovered within 24h and add them into the df
+
+missingtowns2019 <- setdiff(unique(ocme_2019$injury_city_revised) , within24h2019prop$injury_city_revised)
+
+for (i in missingtowns2019) {
+  
+  # create row for that town and a 0 next to number of fatalities discovered in 24h
+  newtown <- c(i, 0)
+  
+  # add to within24h2018prop
+  within24h2019prop = rbind(within24h2019prop, newtown)
+  
+}
+
+# convert the within24h2018prop fatals into numerics because for some reason they're strings
+within24h2019prop$fatal <- as.numeric(within24h2019prop$fatal)
+
+# aggregate fatalities for overall deaths [not just discovered in 24h]
+ocme_2019_agg24h <- ocme_2019 %>% group_by(injury_city_revised) %>% summarise_at(vars(fatal), sum)
+
+# rename the danbury_2018_agg24h "fatal" column because it'll get confusing otherwise when merged
+names(ocme_2019_agg24h)[names(ocme_2019_agg24h) == 'fatal'] <- 'total'
+
+# merge with within24h2018prop to have a column with the actual number of deaths
+ocme_2019_24h_merged <- merge(within24h2019prop, ocme_2019_agg24h, by="injury_city_revised")
+
+# get the proportion of fatalities discovered in 24h, multiply by 100 so we have a percentage
+ocme_2019_24h_merged$Prop <- round((ocme_2019_24h_merged$fatal/ocme_2019_24h_merged$total)*100, digits=2)
+
+# convert any NaN to 0 -- from https://stackoverflow.com/questions/18142117/how-to-replace-nan-value-with-zero-in-a-huge-data-frame
+
+ocme_2019_24h_merged$Prop[is.nan(ocme_2019_24h_merged$Prop)] <- 0
+
+# Plot the proportion of people discovered within 24h
+# had an issue with the fill, edited with http://www.sthda.com/english/wiki/ggplot2-barplots-quick-start-guide-r-software-and-data-visualization
+# needed to change the font size for the text overlay, used https://stackoverflow.com/questions/25061822/ggplot-geom-text-font-size-control
+
+town_2019_24h_capita <- ggplot(data=ocme_2019_24h_merged, aes(x=injury_city_revised, y=Prop, fill=Prop, position = "dodge")) + 
+      geom_bar(stat="Identity") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = Prop), vjust = -0.3, colour = "red", size = 3/.pt) + ggtitle("Percent of fatalities discovered in under 24 hours by town in 2019")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 3))
+
+town_2019_24h_capita
+
+ggsave(plot=town_2019_24h_capita, filename = "images/statewide/overdoses_by_town_prop_24h_2019.png", width = 10, height = 8)
+ 
+```
+
+**Over 24h**
+
+```{r townover24h2019, echo=FALSE, message=FALSE, warning=FALSE}
+#fixed axis text size in theme() using https://stackoverflow.com/questions/65956833/ggplot2-how-to-dynamically-wrap-resize-rescale-x-axis-labels-so-they-wont-over
+
+town_over24h_2019 <- ggplot(data=over24h2019, aes(x=injury_city_revised, ..count..)) + 
+      geom_bar(aes(fill = ..count..), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = -0.3, colour = "red", size =6/.pt) + ggtitle("City/town of OD for 2019 opioid-detected deaths found in over 24h")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size =6))
+
+town_over24h_2019
+
+ggsave(plot=town_over24h_2019, filename = "images/statewide/overdoses_by_town_over24h_2019.png", width = 10, height = 8)
+
+#find the number of ODs in each town by aggregating the indicator var for each town, from https://stackoverflow.com/questions/60961960/how-do-i-sum-a-column-with-categorical-vairables-in-r
+
+# create a new dataframe that we can manipulate without messing up within24h2018
+
+over24h2019prop <- over24h2019 %>% group_by(injury_city_revised) %>% summarise_at(vars(fatal), sum)
+
+# find towns that don't have anyone discovered within 24h and add them into the df
+
+missingtowns2019 <- setdiff(unique(ocme_2019$injury_city_revised) , over24h2019prop$injury_city_revised)
+
+for (i in missingtowns2019) {
+  
+  # create row for that town and a 0 next to number of fatalities discovered in 24h
+  newtown <- c(i, 0)
+  
+  # add to within24h2018prop
+  over24h2019prop = rbind(over24h2019prop, newtown)
+  
+}
+
+# convert the within24h2018prop fatals into numerics because for some reason they're strings
+over24h2019prop$fatal <- as.numeric(over24h2019prop$fatal)
+
+# aggregate fatalities for overall deaths [not just discovered in 24h]
+ocme_2019_agg24h <- ocme_2019 %>% group_by(injury_city_revised) %>% summarise_at(vars(fatal), sum)
+
+# rename the danbury_2018_agg24h "fatal" column because it'll get confusing otherwise when merged
+names(ocme_2019_agg24h)[names(ocme_2019_agg24h) == 'fatal'] <- 'total'
+
+# merge with within24h2018prop to have a column with the actual number of deaths
+ocme_2019_over24h_merged <- merge(over24h2019prop, ocme_2019_agg24h, by="injury_city_revised")
+
+# get the proportion of fatalities discovered in 24h, multiply by 100 so we have a percentage
+ocme_2019_over24h_merged$Prop <- round((ocme_2019_over24h_merged$fatal/ocme_2019_over24h_merged$total)*100, digits=2)
+
+# convert any NaN to 0 -- from https://stackoverflow.com/questions/18142117/how-to-replace-nan-value-with-zero-in-a-huge-data-frame
+
+ocme_2019_over24h_merged$Prop[is.nan(ocme_2019_over24h_merged$Prop)] <- 0
+
+# Plot the proportion of people discovered within 24h
+# had an issue with the fill, edited with http://www.sthda.com/english/wiki/ggplot2-barplots-quick-start-guide-r-software-and-data-visualization
+# needed to change the font size for the text overlay, used https://stackoverflow.com/questions/25061822/ggplot-geom-text-font-size-control
+
+town_2019_over24h_capita <- ggplot(data=ocme_2019_over24h_merged, aes(x=injury_city_revised, y=Prop, fill=Prop, position = "dodge")) + 
+      geom_bar(stat="Identity") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = Prop), vjust = -0.3, colour = "red", size = 3/.pt) + ggtitle("Percent of fatalities discovered in over 24 hours by town in 2019")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 3))
+
+town_2019_over24h_capita
+
+ggsave(plot=town_2019_over24h_capita, filename = "images/statewide/overdoses_by_town_prop_over24h_2019.png", width = 10, height = 8)
+ 
+```
+
+#### 2020
+
+**Under 24h**
+
+```{r town24h2020, echo=FALSE, message=FALSE, warning=FALSE}
+#fixed axis text size in theme() using https://stackoverflow.com/questions/65956833/ggplot2-how-to-dynamically-wrap-resize-rescale-x-axis-labels-so-they-wont-over
+
+town_24h_2020 <- ggplot(data=within24h2020, aes(x=injury_city_revised, ..count..)) + 
+      geom_bar(aes(fill = ..count..), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = -0.3, colour = "red", size = 3/.pt) + ggtitle("City/town of OD for 2020 opioid-detected deaths found within 24h")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 3))
+
+town_24h_2020
+
+ggsave(plot=town_24h_2020, filename = "images/statewide/overdoses_by_town_24h_2020.png", width = 10, height = 8)
+
+#find the number of ODs in each town by aggregating the indicator var for each town, from https://stackoverflow.com/questions/60961960/how-do-i-sum-a-column-with-categorical-vairables-in-r
+
+# create a new dataframe that we can manipulate without messing up within24h2018
+
+within24h2020prop <- within24h2020 %>% group_by(injury_city_revised) %>% summarise_at(vars(fatal), sum)
+
+# find towns that don't have anyone discovered within 24h and add them into the df
+
+missingtowns2020 <- setdiff(unique(ocme_2020$injury_city_revised) , within24h2020prop$injury_city_revised)
+
+for (i in missingtowns2020) {
+  
+  # create row for that town and a 0 next to number of fatalities discovered in 24h
+  newtown <- c(i, 0)
+  
+  # add to within24h2018prop
+  within24h2020prop = rbind(within24h2020prop, newtown)
+  
+}
+
+# convert the within24h2018prop fatals into numerics because for some reason they're strings
+within24h2020prop$fatal <- as.numeric(within24h2020prop$fatal)
+
+# aggregate fatalities for overall deaths [not just discovered in 24h]
+ocme_2020_agg24h <- ocme_2020 %>% group_by(injury_city_revised) %>% summarise_at(vars(fatal), sum)
+
+# rename the danbury_2018_agg24h "fatal" column because it'll get confusing otherwise when merged
+names(ocme_2020_agg24h)[names(ocme_2020_agg24h) == 'fatal'] <- 'total'
+
+# merge with within24h2018prop to have a column with the actual number of deaths
+ocme_2020_24h_merged <- merge(within24h2020prop, ocme_2020_agg24h, by="injury_city_revised")
+
+# get the proportion of fatalities discovered in 24h, multiply by 100 so we have a percentage
+ocme_2020_24h_merged$Prop <- round((ocme_2020_24h_merged$fatal/ocme_2020_24h_merged$total)*100, digits=2)
+
+# convert any NaN to 0 -- from https://stackoverflow.com/questions/18142117/how-to-replace-nan-value-with-zero-in-a-huge-data-frame
+
+ocme_2020_24h_merged$Prop[is.nan(ocme_2020_24h_merged$Prop)] <- 0
+
+# Plot the proportion of people discovered within 24h
+# had an issue with the fill, edited with http://www.sthda.com/english/wiki/ggplot2-barplots-quick-start-guide-r-software-and-data-visualization
+# needed to change the font size for the text overlay, used https://stackoverflow.com/questions/25061822/ggplot-geom-text-font-size-control
+
+town_2020_24h_capita <- ggplot(data=ocme_2020_24h_merged, aes(x=injury_city_revised, y=Prop, fill=Prop, position = "dodge")) + 
+      geom_bar(stat="Identity") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = Prop), vjust = -0.3, colour = "red", size = 3/.pt) + ggtitle("Percent of fatalities discovered in under 24 hours by town in 2020")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 3))
+
+town_2020_24h_capita
+
+ggsave(plot=town_2020_24h_capita, filename = "images/statewide/overdoses_by_town_prop_24h_2020.png", width = 10, height = 8)
+ 
+```
+
+**Over 24h**
+
+```{r townover24h2020, echo=FALSE, message=FALSE, warning=FALSE}
+#fixed axis text size in theme() using https://stackoverflow.com/questions/65956833/ggplot2-how-to-dynamically-wrap-resize-rescale-x-axis-labels-so-they-wont-over
+
+town_over24h_2020 <- ggplot(data=over24h2020, aes(x=injury_city_revised, ..count..)) + 
+      geom_bar(aes(fill = ..count..), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = -0.3, colour = "red", size =6/.pt) + ggtitle("City/town of OD for 2020 opioid-detected deaths found in over 24h")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size =6))
+
+town_over24h_2020
+
+ggsave(plot=town_over24h_2020, filename = "images/statewide/overdoses_by_town_over24h_2020.png", width = 10, height = 8)
+
+#find the number of ODs in each town by aggregating the indicator var for each town, from https://stackoverflow.com/questions/60961960/how-do-i-sum-a-column-with-categorical-vairables-in-r
+
+# create a new dataframe that we can manipulate without messing up within24h2018
+
+over24h2020prop <- over24h2020 %>% group_by(injury_city_revised) %>% summarise_at(vars(fatal), sum)
+
+# find towns that don't have anyone discovered within 24h and add them into the df
+
+missingtowns2020 <- setdiff(unique(ocme_2020$injury_city_revised) , over24h2020prop$injury_city_revised)
+
+for (i in missingtowns2020) {
+  
+  # create row for that town and a 0 next to number of fatalities discovered in 24h
+  newtown <- c(i, 0)
+  
+  # add to within24h2018prop
+  over24h2020prop = rbind(over24h2020prop, newtown)
+  
+}
+
+# convert the within24h2018prop fatals into numerics because for some reason they're strings
+over24h2020prop$fatal <- as.numeric(over24h2020prop$fatal)
+
+# aggregate fatalities for overall deaths [not just discovered in 24h]
+ocme_2020_agg24h <- ocme_2020 %>% group_by(injury_city_revised) %>% summarise_at(vars(fatal), sum)
+
+# rename the danbury_2018_agg24h "fatal" column because it'll get confusing otherwise when merged
+names(ocme_2020_agg24h)[names(ocme_2020_agg24h) == 'fatal'] <- 'total'
+
+# merge with within24h2018prop to have a column with the actual number of deaths
+ocme_2020_over24h_merged <- merge(over24h2020prop, ocme_2020_agg24h, by="injury_city_revised")
+
+# get the proportion of fatalities discovered in 24h, multiply by 100 so we have a percentage
+ocme_2020_over24h_merged$Prop <- round((ocme_2020_over24h_merged$fatal/ocme_2020_over24h_merged$total)*100, digits=2)
+
+# convert any NaN to 0 -- from https://stackoverflow.com/questions/18142117/how-to-replace-nan-value-with-zero-in-a-huge-data-frame
+
+ocme_2020_over24h_merged$Prop[is.nan(ocme_2020_over24h_merged$Prop)] <- 0
+
+# Plot the proportion of people discovered within 24h
+# had an issue with the fill, edited with http://www.sthda.com/english/wiki/ggplot2-barplots-quick-start-guide-r-software-and-data-visualization
+# needed to change the font size for the text overlay, used https://stackoverflow.com/questions/25061822/ggplot-geom-text-font-size-control
+
+town_2020_over24h_capita <- ggplot(data=ocme_2020_over24h_merged, aes(x=injury_city_revised, y=Prop, fill=Prop, position = "dodge")) + 
+      geom_bar(stat="Identity") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = Prop), vjust = -0.3, colour = "red", size = 3/.pt) + ggtitle("Percent of fatalities discovered in over 24 hours by town in 2020")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 3))
+
+town_2020_over24h_capita
+
+ggsave(plot=town_2020_over24h_capita, filename = "images/statewide/overdoses_by_town_prop_over24h_2020.png", width = 10, height = 8)
+ 
+```
+
+### Injury location for <24h and >=24h {.tabset}
+
+#### 2018
+
+**Under 24h**
+
+```{r residenceUnder242018, echo=FALSE, message=FALSE, warning=FALSE}
+residenceUnder24_2018 <- ggplot(data=within24h2018, aes(x=injury_location, ..count..)) + geom_bar(aes(fill = injury_location), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45), breaks = within24h2018$injury_location, labels = within24h2018$injury_location) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black") + ggtitle("Opioid-detected overdose injury locations  \n for 2018 decedents found within 24 hours")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 10))
+
+residenceUnder24_2018
+
+#ggsave(plot=injury_collapsed_2019, filename = "images/statewide/injury_collapsed_2019.png", width = 10, height = 8)
+
+ggsave(plot=residenceUnder24_2018, filename = "images/statewide/residenceUnder24_2020.png", width = 10, height = 8)
+
+residenceUnder24_2018_prop <- ggplot(data=within24h2018, aes(x=injury_location, ..count..)) + geom_bar(aes(fill = injury_location), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45), breaks = within24h2018$injury_location, labels = within24h2018$injury_location) + theme_light() + geom_text(aes(label = round(..count../nrow(within24h2018), 3)), stat = "count", vjust = 0, colour = "black") + ggtitle("Opioid-detected overdose injury locations  \n for 2018 decedents found within 24 hours")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 10))
+
+residenceUnder24_2018_prop
+
+#ggsave(plot=injury_collapsed_2019_prop, filename = "images/statewide/injury_collapsed_2019_prop.png", width = 10, height = 8)
+
+ggsave(plot=residenceUnder24_2018_prop, filename = "images/statewide/residenceUnder24_2018_prop.png", width = 10, height = 8)
+
+
+```
+
+**Over 24h**
+
+```{r residenceOver242018, echo=FALSE, message=FALSE, warning=FALSE}
+
+residenceOver24_2018 <- ggplot(data=over24h2018, aes(x=injury_location, ..count..)) + geom_bar(aes(fill = injury_location), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45), breaks = over24h2018$injury_location, labels = over24h2018$injury_location) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black") + ggtitle("Opioid-detected overdose injury locations  \n for 2018 decedents found after >24 hours")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 10))
+
+residenceOver24_2018
+
+#ggsave(plot=injury_collapsed_2019, filename = "images/statewide/injury_collapsed_2019.png", width = 10, height = 8)
+
+ggsave(plot=residenceOver24_2018, filename = "images/statewide/residenceOver24_2018.png", width = 10, height = 8)
+
+residenceOver24_2018_prop <- ggplot(data=over24h2018, aes(x=injury_location, ..count..)) + geom_bar(aes(fill = injury_location), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45), breaks = over24h2018$injury_location, labels = over24h2018$injury_location) + theme_light() + geom_text(aes(label = round(..count../nrow(over24h2018), 3)), stat = "count", vjust = 0, colour = "black") + ggtitle("Opioid-detected overdose injury locations  \n for 2018 decedents found after >24 hours")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 10))
+
+residenceOver24_2018_prop
+
+#ggsave(plot=residenceOver24_2020_prop, filename = "images/statewide/residenceOver24_2020_prop.png", width = 10, height = 8)
+
+ggsave(plot=residenceOver24_2018_prop, filename = "images/statewide/residenceOver24_2018_prop.png", width = 10, height = 8)
+
+
+```
+
+#### 2019
+
+**Under 24h**
+
+```{r residenceUnder242019, echo=FALSE, message=FALSE, warning=FALSE}
+
+residenceUnder24_2019 <- ggplot(data=within24h2019, aes(x=injury_collapsed, ..count..)) + geom_bar(aes(fill = injury_collapsed), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45), breaks = within24h2019$injury_collapsed, labels = within24h2019$injury_collapsed) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black") + ggtitle("Opioid-detected overdose injury locations  \n for 2019 decedents found within 24 hours")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 10))
+
+residenceUnder24_2019
+
+#ggsave(plot=injury_collapsed_2019, filename = "images/statewide/injury_collapsed_2019.png", width = 10, height = 8)
+
+ggsave(plot=residenceUnder24_2019, filename = "images/statewide/residenceUnder24_2019.png", width = 10, height = 8)
+
+residenceUnder24_2019_prop <- ggplot(data=within24h2019, aes(x=injury_collapsed, ..count..)) + geom_bar(aes(fill = injury_collapsed), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45), breaks = within24h2019$injury_collapsed, labels = within24h2019$injury_collapsed) + theme_light() + geom_text(aes(label = round(..count../nrow(within24h2019), 3)), stat = "count", vjust = 0, colour = "black") + ggtitle("Opioid-detected overdose injury locations  \n for 2019 decedents found within 24 hours")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 10))
+
+residenceUnder24_2019_prop
+
+#ggsave(plot=injury_collapsed_2019_prop, filename = "images/statewide/injury_collapsed_2019_prop.png", width = 10, height = 8)
+
+ggsave(plot=residenceUnder24_2019_prop, filename = "images/statewide/residenceUnder24_2019_prop.png", width = 10, height = 8)
+
+
+```
+
+**Over 24h**
+
+```{r residenceOver242019, echo=FALSE, message=FALSE, warning=FALSE}
+
+residenceOver24_2019 <- ggplot(data=over24h2019, aes(x=injury_collapsed, ..count..)) + geom_bar(aes(fill = injury_collapsed), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45), breaks = over24h2019$injury_collapsed, labels = over24h2019$injury_collapsed) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black") + ggtitle("Opioid-detected overdose injury locations  \n for 2019 decedents found after >24 hours")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 10))
+
+residenceOver24_2019
+
+#ggsave(plot=injury_collapsed_2019, filename = "images/statewide/injury_collapsed_2019.png", width = 10, height = 8)
+
+ggsave(plot=residenceOver24_2019, filename = "images/statewide/residenceOver24_2020.png", width = 10, height = 8)
+
+residenceOver24_2019_prop <- ggplot(data=over24h2019, aes(x=injury_collapsed, ..count..)) + geom_bar(aes(fill = injury_collapsed), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45), breaks = over24h2019$injury_collapsed, labels = over24h2019$injury_collapsed) + theme_light() + geom_text(aes(label = round(..count../nrow(over24h2019), 3)), stat = "count", vjust = 0, colour = "black") + ggtitle("Opioid-detected overdose injury locations  \n for 2019 decedents found after >24 hours")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 10))
+
+residenceOver24_2019_prop
+
+#ggsave(plot=residenceOver24_2020_prop, filename = "images/statewide/residenceOver24_2020_prop.png", width = 10, height = 8)
+
+ggsave(plot=residenceOver24_2019_prop, filename = "images/statewide/residenceOver24_2019_prop.png", width = 10, height = 8)
+
+
+```
+
+#### 2020
+
+**Under 24h**
+
+```{r residenceUnder242020, echo=FALSE, message=FALSE, warning=FALSE}
+
+residenceUnder24_2020 <- ggplot(data=within24h2020, aes(x=injury_collapsed, ..count..)) + geom_bar(aes(fill = injury_collapsed), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45), breaks = within24h2020$injury_collapsed, labels = within24h2020$injury_collapsed) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black") + ggtitle("Opioid-detected overdose injury locations  \n for 2020 decedents found within 24 hours")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 10))
+
+residenceUnder24_2020
+
+#ggsave(plot=injury_collapsed_2019, filename = "images/statewide/injury_collapsed_2019.png", width = 10, height = 8)
+
+ggsave(plot=residenceUnder24_2020, filename = "images/statewide/residenceUnder24_2020.png", width = 10, height = 8)
+
+residenceUnder24_2020_prop <- ggplot(data=within24h2020, aes(x=injury_collapsed, ..count..)) + geom_bar(aes(fill = injury_collapsed), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45), breaks = within24h2020$injury_collapsed, labels = within24h2020$injury_collapsed) + theme_light() + geom_text(aes(label = round(..count../nrow(within24h2020), 3)), stat = "count", vjust = 0, colour = "black") + ggtitle("Opioid-detected overdose injury locations  \n for 2020 decedents found within 24 hours")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 10))
+
+residenceUnder24_2020_prop
+
+#ggsave(plot=injury_collapsed_2019_prop, filename = "images/statewide/injury_collapsed_2019_prop.png", width = 10, height = 8)
+
+ggsave(plot=residenceUnder24_2020_prop, filename = "images/statewide/residenceUnder24_2020_prop.png", width = 10, height = 8)
+
+
+```
+
+**Over 24h**
+
+```{r residenceOver242020, echo=FALSE, message=FALSE, warning=FALSE}
+
+residenceOver24_2020 <- ggplot(data=over24h2020, aes(x=injury_collapsed, ..count..)) + geom_bar(aes(fill = injury_collapsed), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45), breaks = over24h2020$injury_collapsed, labels = over24h2020$injury_collapsed) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black") + ggtitle("Opioid-detected overdose injury locations  \n for 2020 decedents found after >24 hours")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 10))
+
+residenceOver24_2020
+
+#ggsave(plot=injury_collapsed_2019, filename = "images/statewide/injury_collapsed_2019.png", width = 10, height = 8)
+
+ggsave(plot=residenceOver24_2020, filename = "images/statewide/residenceOver24_2020.png", width = 10, height = 8)
+
+residenceOver24_2020_prop <- ggplot(data=over24h2020, aes(x=injury_collapsed, ..count..)) + geom_bar(aes(fill = injury_collapsed), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45), breaks = over24h2020$injury_collapsed, labels = over24h2020$injury_collapsed) + theme_light() + geom_text(aes(label = round(..count../nrow(over24h2020), 3)), stat = "count", vjust = 0, colour = "black") + ggtitle("Opioid-detected overdose injury locations  \n for 2020 decedents found after >24 hours")+theme(plot.title = element_text(hjust = 0.5), legend.position="none", axis.text.x = element_text(size = 10))
+
+residenceOver24_2020_prop
+
+#ggsave(plot=residenceOver24_2020_prop, filename = "images/statewide/residenceOver24_2020_prop.png", width = 10, height = 8)
+
+ggsave(plot=residenceOver24_2020_prop, filename = "images/statewide/residenceOver24_2020_prop.png", width = 10, height = 8)
+
+
+```
+
+### Living arrangements for <24h and >=24h {.tabset}
+
+#### 2018
+
+**Under 24h**
+
+
+```{r liveAloneUnder242018, echo=FALSE, message=FALSE, warning=FALSE}
+#subset all cases where people died in their own house
+
+residence2018_24h <- subset(within24h2018, injury_address_updated == residence_address_updated)
+
+residence2018_24h$roommates <- ifelse(residence2018_24h$OTHERS...INJURY.LOCATION..A..alone.F..fam.ptner.N.nonfamM.missing.N.A. %in% c(" F ", "F?", "F", "F? lived w str & her family"), "Family/partner", ifelse(residence2018_24h$OTHERS...INJURY.LOCATION..A..alone.F..fam.ptner.N.nonfamM.missing.N.A. %in% c("unclear", "unspecified", "", "2"), "Unknown", ifelse(residence2018_24h$OTHERS...INJURY.LOCATION..A..alone.F..fam.ptner.N.nonfamM.missing.N.A. == "A", "Alone", ifelse(residence2018_24h$OTHERS...INJURY.LOCATION..A..alone.F..fam.ptner.N.nonfamM.missing.N.A. %in% c("M", "777", ""), "Unknown", ifelse(residence2018_24h$OTHERS...INJURY.LOCATION..A..alone.F..fam.ptner.N.nonfamM.missing.N.A. %in% c("N", "N "), "Non-family", ifelse(residence2018_24h$OTHERS...INJURY.LOCATION..A..alone.F..fam.ptner.N.nonfamM.missing.N.A. %in% c("F/N", "N/F"), "Family and non-family", residence2018_24h$OTHERS...INJURY.LOCATION..A..alone.F..fam.ptner.N.nonfamM.missing.N.A.))))))
+
+liveAlone_2018_24h <-ggplot(data=residence2018_24h, aes(x=roommates, ..count..)) + 
+      geom_bar(aes(fill = roommates), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black")+ ggtitle("Living arrangements for 2018 opioid-detected deaths in own residence \n found within 24 hours")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none")
+
+liveAlone_2018_24h
+
+ggsave(plot=liveAlone_2018_24h, filename = "images/statewide/live_alone_2018_24h.png", width = 10, height = 8)
+
+liveAlone_2018_prop_24h <-ggplot(data=residence2018_24h, aes(x=roommates, ..count..)) + 
+      geom_bar(aes(fill = roommates), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = round(..count../nrow(residence2018_24h),3)), stat = "count", vjust = 0, colour = "black")+ ggtitle("Living arrangements for 2018 opioid-detected deaths in own residence \n found within 24h")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none")
+
+liveAlone_2018_prop_24h
+
+ggsave(plot=liveAlone_2018_prop_24h, filename = "images/statewide/live_alone_2018_prop_24h.png", width = 10, height = 8)
+
+```
+
+**Over 24h**
+
+
+```{r liveAloneOver242018, echo=FALSE, message=FALSE, warning=FALSE}
+#subset all cases where people died in their own house
+
+residence2018_over24h <- subset(over24h2018, injury_address_updated == residence_address_updated)
+
+residence2018_over24h$roommates <- ifelse(residence2018_over24h$OTHERS...INJURY.LOCATION..A..alone.F..fam.ptner.N.nonfamM.missing.N.A. %in% c(" F ", "F?", "F", "F? lived w str & her family"), "Family/partner", ifelse(residence2018_over24h$OTHERS...INJURY.LOCATION..A..alone.F..fam.ptner.N.nonfamM.missing.N.A. %in% c("unclear", "unspecified", "", "2"), "Unknown", ifelse(residence2018_over24h$OTHERS...INJURY.LOCATION..A..alone.F..fam.ptner.N.nonfamM.missing.N.A. %in% c("A", "A?"), "Alone", ifelse(residence2018_over24h$OTHERS...INJURY.LOCATION..A..alone.F..fam.ptner.N.nonfamM.missing.N.A. %in% c("M", "777", ""), "Unknown", ifelse(residence2018_over24h$OTHERS...INJURY.LOCATION..A..alone.F..fam.ptner.N.nonfamM.missing.N.A. %in% c("N", "N "), "Non-family", ifelse(residence2018_over24h$OTHERS...INJURY.LOCATION..A..alone.F..fam.ptner.N.nonfamM.missing.N.A. %in% c("F/N", "N/F"), "Family and non-family", residence2018_over24h$OTHERS...INJURY.LOCATION..A..alone.F..fam.ptner.N.nonfamM.missing.N.A.))))))
+
+liveAlone_2018_over24h <-ggplot(data=residence2018_over24h, aes(x=roommates, ..count..)) + 
+      geom_bar(aes(fill = roommates), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black")+ ggtitle("Living arrangements for 2018 opioid-detected deaths in own residence \n found in over 24 hours")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none")
+
+liveAlone_2018_over24h
+
+ggsave(plot=liveAlone_2018_over24h, filename = "images/statewide/live_alone_2018_over24h.png", width = 10, height = 8)
+
+liveAlone_2018_prop_over24h <-ggplot(data=residence2018_over24h, aes(x=roommates, ..count..)) + 
+      geom_bar(aes(fill = roommates), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = round(..count../nrow(residence2018_over24h),3)), stat = "count", vjust = 0, colour = "black")+ ggtitle("Living arrangements for 2018 opioid-detected deaths in own residence \n found in over 24h")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none")
+
+liveAlone_2018_prop_over24h
+
+ggsave(plot=liveAlone_2018_prop_24h, filename = "images/statewide/live_alone_2018_prop_over24h.png", width = 10, height = 8)
+
+```
+
+#### 2019
+
+**Under 24h**
+
+```{r liveAloneUnder242019, echo=FALSE, message=FALSE, warning=FALSE}
+#subset all cases where people died in their own house
+
+residence2019_24h <- subset(within24h2019, Injury.Address1 == Residence.Address1)
+
+#table(residence2020$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfam.M.missing.N.A.)
+
+residence2019_24h$roommates <- ifelse(residence2019_24h$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfamM.missing.N.A. %in% c(" F ", "F?", "F", "F? lived w str & her family"), "Family/partner", ifelse(residence2019_24h$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfamM.missing.N.A. %in% c("unclear", "unspecified", "", "2"), "Unknown", ifelse(residence2019_24h$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfamM.missing.N.A. == "A", "Alone", ifelse(residence2019_24h$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfamM.missing.N.A. %in% c("M", "TOC 59; pronounced 119"), "Unknown", ifelse(residence2019_24h$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfamM.missing.N.A. %in% c("N", "N "), "Non-family", ifelse(residence2019_24h$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfamM.missing.N.A. == "F,N", "Family and non-family", residence2019_24h$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfamM.missing.N.A.))))))
+
+liveAlone_2019_24h <-ggplot(data=residence2019_24h, aes(x=roommates, ..count..)) + 
+      geom_bar(aes(fill = roommates), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black")+ ggtitle("Living arrangements for 2019 opioid-detected deaths in own residence \n found within 24 hours")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none")
+
+liveAlone_2019_24h
+
+ggsave(plot=liveAlone_2019_24h, filename = "images/statewide/live_alone_2019_24h.png", width = 10, height = 8)
+
+liveAlone_2019_prop_24h <-ggplot(data=residence2019_24h, aes(x=roommates, ..count..)) + 
+      geom_bar(aes(fill = roommates), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = round(..count../nrow(residence2019_24h),3)), stat = "count", vjust = 0, colour = "black")+ ggtitle("Living arrangements for 2019 opioid-detected deaths in own residence \n found within 24h")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none")
+
+liveAlone_2019_prop_24h
+
+ggsave(plot=liveAlone_2019_prop_24h, filename = "images/statewide/live_alone_2019_prop_24h.png", width = 10, height = 8)
+
+```
+
+
+**Over 24h**
+
+```{r liveAloneOver242019, echo=FALSE, message=FALSE, warning=FALSE}
+#subset all cases where people died in their own house
+
+residence2019_over24h <- subset(over24h2019, Injury.Address1 == Residence.Address1)
+
+#table(residence2020$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfam.M.missing.N.A.)
+
+residence2019_over24h$roommates <- ifelse(residence2019_over24h$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfamM.missing.N.A. %in% c(" F ", "F?", "F", "F? lived w str & her family"), "Family/partner", ifelse(residence2019_over24h$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfamM.missing.N.A. %in% c("unclear", "unspecified", "", "2"), "Unknown", ifelse(residence2019_over24h$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfamM.missing.N.A. == "A", "Alone", ifelse(residence2019_over24h$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfamM.missing.N.A. %in% c("M", "TOC 59; pronounced 119", "N/A"), "Unknown", ifelse(residence2019_over24h$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfamM.missing.N.A. %in% c("N", "N "), "Non-family", ifelse(residence2019_over24h$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfamM.missing.N.A. == "F,N", "Family and non-family", residence2019_over24h$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfamM.missing.N.A.))))))
+
+liveAlone_2019_over24h <-ggplot(data=residence2019_over24h, aes(x=roommates, ..count..)) + 
+      geom_bar(aes(fill = roommates), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black")+ ggtitle("Living arrangements for 2019 opioid-detected deaths in own residence \n found in over 24 hours")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none")
+
+liveAlone_2019_over24h
+
+ggsave(plot=liveAlone_2019_over24h, filename = "images/statewide/live_alone_2019_over24h.png", width = 10, height = 8)
+
+liveAlone_2019_prop_over24h <-ggplot(data=residence2019_over24h, aes(x=roommates, ..count..)) + 
+      geom_bar(aes(fill = roommates), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = round(..count../nrow(residence2019_over24h),3)), stat = "count", vjust = 0, colour = "black")+ ggtitle("Living arrangements for 2019 opioid-detected deaths in own residence \n found in over 24h")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none")
+
+liveAlone_2019_prop_over24h
+
+ggsave(plot=liveAlone_2019_prop_over24h, filename = "images/statewide/live_alone_2019_prop_over24h.png", width = 10, height = 8)
+
+```
+
+#### 2020
+
+**Under 24h**
+
+```{r liveAloneUnder242020, echo=FALSE, message=FALSE, warning=FALSE}
+#subset all cases where people died in their own house
+residence2020_24h <- subset(within24h2020, Injury.Address1 == Residence.Address1)
+
+#table(residence2020$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfam.M.missing.N.A.)
+
+residence2020_24h$roommates <- ifelse(residence2020_24h$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfam.M.missing.N.A. %in% c(" F ", "F?", "F"), "Family/partner", ifelse(residence2020_24h$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfam.M.missing.N.A. %in% c("unclear", "unspecified", "", "2"), "Unknown", ifelse(residence2020_24h$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfam.M.missing.N.A. == "A", "Alone", ifelse(residence2020_24h$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfam.M.missing.N.A. == "M", "Unknown", ifelse(residence2020_24h$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfam.M.missing.N.A. %in% c("N", "N "), "Non-family", ifelse(residence2020_24h$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfam.M.missing.N.A. == "F/N", "Family and non-family", residence2020_24h$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfam.M.missing.N.A.))))))
+
+liveAlone_2020_24h <-ggplot(data=residence2020_24h, aes(x=roommates, ..count..)) + 
+      geom_bar(aes(fill = roommates), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black")+ ggtitle("Living arrangements for 2020 opioid-detected deaths in own residence \n found within 24 hours")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none")
+
+liveAlone_2020_24h
+
+ggsave(plot=liveAlone_2020_24h, filename = "images/statewide/live_alone_2020_24h.png", width = 10, height = 8)
+
+liveAlone_2020_prop_24h <-ggplot(data=residence2020_24h, aes(x=roommates, ..count..)) + 
+      geom_bar(aes(fill = roommates), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = round(..count../nrow(residence2020_24h),3)), stat = "count", vjust = 0, colour = "black")+ ggtitle("Living arrangements for 2020 opioid-detected deaths in own residence \n found within 24h")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none")
+
+liveAlone_2020_prop_24h
+
+ggsave(plot=liveAlone_2020_prop_24h, filename = "images/statewide/live_alone_2020_prop_24h.png", width = 10, height = 8)
+
+```
+
+**Over 24h**
+
+```{r liveAloneOver242020, echo=FALSE, message=FALSE, warning=FALSE}
+#subset all cases where people died in their own house
+residence2020_over24h <- subset(over24h2020, Injury.Address1 == Residence.Address1)
+
+#table(residence2020$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfam.M.missing.N.A.)
+
+residence2020_over24h$roommates <- ifelse(residence2020_over24h$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfam.M.missing.N.A. %in% c(" F ", "F?", "F"), "Family/partner", ifelse(residence2020_over24h$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfam.M.missing.N.A. %in% c("unclear", "unspecified", "", "2"), "Unknown", ifelse(residence2020_over24h$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfam.M.missing.N.A. == "A", "Alone", ifelse(residence2020_over24h$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfam.M.missing.N.A. == "M", "Unknown", ifelse(residence2020_over24h$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfam.M.missing.N.A. %in% c("N", "N "), "Non-family", ifelse(residence2020_over24h$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfam.M.missing.N.A. == "F/N", "Family and non-family", residence2020_over24h$OTHERS.LIVING.with.D...A..alone.F..fam.ptner.N.nonfam.M.missing.N.A.))))))
+
+liveAlone_2020_over24h <-ggplot(data=residence2020_over24h, aes(x=roommates, ..count..)) + 
+      geom_bar(aes(fill = roommates), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = ..count..), stat = "count", vjust = 0, colour = "black")+ ggtitle("Living arrangements for 2020 opioid-detected deaths in own residence \n found in over 24 hours")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none")
+
+liveAlone_2020_over24h
+
+ggsave(plot=liveAlone_2020_over24h, filename = "images/statewide/live_alone_2020_over24h.png", width = 10, height = 8)
+
+liveAlone_2020_prop_over24h <-ggplot(data=residence2020_over24h, aes(x=roommates, ..count..)) + 
+      geom_bar(aes(fill = roommates), position = "dodge") + scale_x_discrete(guide = guide_axis(angle = 45)) + theme_light() + geom_text(aes(label = round(..count../nrow(residence2020_over24h),3)), stat = "count", vjust = 0, colour = "black")+ ggtitle("Living arrangements for 2020 opioid-detected deaths in own residence \n found in over 24h")+ theme(plot.title = element_text(hjust = 0.5), legend.position="none")
+
+liveAlone_2020_prop_over24h
+
+ggsave(plot=liveAlone_2020_prop_over24h, filename = "images/statewide/live_alone_2020_prop_over24h.png", width = 10, height = 8)
+
+```
+
+<a href="#top">
+  <button>Back to top</button>
+</a>

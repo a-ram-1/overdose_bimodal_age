@@ -1,0 +1,69 @@
+---
+title: "Untitled"
+output: html_document
+date: "2024-11-19"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+## from https://cloud.r-project.org/web/packages/tidygeocoder/readme/README.html
+
+
+
+sword <- read.csv("sword.csv")
+
+# get rid of the time, from https://stackoverflow.com/questions/57422048/subselect-only-those-rows-that-contain-a-specific-word-on-specific-column
+sword$Day <- sub(" .*", "", sword$ï..Incident.Date)
+
+# convert this string into a date data type so we can extract the year from it
+sword$Day <- as.Date(sword$Day, "%m/%d/%Y")
+
+# extract year from this, from https://stackoverflow.com/questions/36568070/extract-year-from-date
+sword$Year <- format(sword$Day,'%Y')
+
+# from https://stackoverflow.com/questions/50845838/map-zip-codes-to-their-respective-city-and-state-in-r
+
+# add a 0 to the beginning of each zip code, from https://stackoverflow.com/questions/31682084/add-characters-at-the-beginning-of-a-line-in-r
+sword_2020_tolland$Zip <- paste0("0", sword_2020_tolland$Zip)
+sword$Zip <- paste0("0", sword$Zip)
+
+# reverse geocode any addresses that have a NA for the zip
+
+nas <- subset(sword, Zip == "0NA")
+
+# from https://stackoverflow.com/questions/42319993/listing-cities-from-coordinates
+
+reverse <- nas %>%
+  reverse_geocode(lat = Latitude, long = Longitude, method = 'osm',
+                  address = Address, full_results = TRUE) 
+
+# replace the zip code with whatever the reverse geocoding came up with so it's not NA
+
+sword$Zip <- ifelse(sword$Zip == "0NA", reverse$postcode, sword$Zip)
+
+# do a reverse zip lookup for towns 
+reversezip <- reverse_zipcode(sword$Zip)
+
+# rename the zipcode column so we can do a merge
+names(reversezip)[names(reversezip) == 'zipcode'] <- 'Zip'
+
+# merge with sword, from https://stackoverflow.com/questions/51268772/combine-dataframe-based-on-value-in-row-in-r
+sword_locations <- merge(sword, reversezip, by = "Zip", all.x=TRUE, all.y=TRUE)
+
+
+sword_locations$Day <- sub(" .*", "", sword_locations$ï..Incident.Date)
+sword_locations$Day <- as.Date(sword_locations$Day, "%m/%d/%Y")
+
+# order the df in ascending order of date, because the reversezip function orders it based on city
+# from https://stackoverflow.com/questions/6246159/how-to-sort-a-data-frame-by-date
+
+sword_locations <- sword_locations[order(as.Date(sword_locations$Day, format="%m/%d/%Y")),]
+
+# write this to a csv that I can use for sword processing
+write.csv(sword_locations, file="sword_geocoded.csv")
+
+```
+

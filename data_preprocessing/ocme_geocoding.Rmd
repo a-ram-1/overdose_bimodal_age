@@ -1,0 +1,89 @@
+---
+title: "Untitled"
+output: html_document
+date: "2024-11-13"
+---
+
+```{r}
+######################################################################################################################
+library(dplyr)
+#library(xlsx)
+library(broom)
+library(leaflet)
+library(sp)
+library(sf)
+library(ggplot2)
+library(gganimate)
+library(gifski)
+library(transformr)
+#library(INLA)
+library(RColorBrewer)
+# used but not imported into namespace (must be installed)
+library(readr)
+library(tigris)
+library(spdep)
+library(janitor)
+library(tibble)
+library(DT)
+library(tidygeocoder)
+#library(htmlwidgets)
+options(mc.cores=4)
+#rstan_options(auto_write = TRUE)
+#options(mc.cores = parallel::detectCores())
+
+######### BEGIN PROGRAMMING STATEMENTS ########################
+# OCME dataset
+# Import the data
+#library(readxl)
+# read_excel_allsheets <- function(filename, tibble = FALSE) {
+#   sheets <- readxl::excel_sheets(filename)
+#   x <- lapply(sheets, function(X) readxl::read_excel(filename, sheet = X))
+#   if(!tibble) x <- lapply(x, as.data.frame)
+#   names(x) <- sheets
+#   x
+# }
+# mysheets <- read_excel_allsheets("C:/Users/haidong/Documents/Yale/Gregg/Projects/Connecticut/Data/OCME_2009-2019_20210115.xlsx")
+# ocme <- plyr::ldply(mysheets, data.frame)
+ocme <- read.csv("ocme_2020.csv")
+
+#str(ocme)
+#ocme$.id <- NULL
+# keep the numeric identifier associated with each case, remove the associated name
+ocme$id <- substr(ocme$OCME.Case.Number, start=1, stop=8)
+# remove NAs and duplicates
+ocme <- ocme[which(!is.na(ocme$id)),]
+ocme <- ocme[!duplicated(ocme$id),] 
+
+
+# exaYear# exact those without geocoding
+keepcols = c("id", "Year", "Residence.Address1", "ct_residence.2.HOMELESS.777.UNK", "Residence.City",	"Residence.County",
+             "Residence.State",	"Residence.Zip", "injury.locn_revised",	"injury.location_details", "Injury.Address1",
+             "Injury.City",	"Injury.County", "Injury.State", "Injury.Zip", "death.locn_details", "death.locn_revised",
+             "Death.Address1",	"Death.City",	"Death.County",	"Death.State",	"Death.Zip",
+             "ResidenceLatitude",	"ResidenceLongitude",	"InjuryLatitude", "InjuryLongitude", "DeathLatitude", "DeathLongitude")
+keepcols1 = c("ResidenceLatitude",	"ResidenceLongitude",	"InjuryLatitude", "InjuryLongitude", "DeathLatitude", "DeathLongitude")
+
+# create a subset of ocme with just the location information
+ocme_address1 <- ocme[,keepcols]
+
+# select out columns with missing geocoordinates
+ocme_misscordinate1 <- ocme_address1[!complete.cases(ocme_address1[,keepcols1]),]
+head(ocme_misscordinate1)
+
+# geocoding those without geocoding process -- have to specify tidygeocoder::geocode for now because otherwise r tries to use the ggplot geocode
+ocme_misscordinate1 <- select(ocme_misscordinate1, -c("ResidenceLatitude",	"ResidenceLongitude",	"InjuryLatitude", "InjuryLongitude", "DeathLatitude", "DeathLongitude"))
+ocme_geocode2 <- ocme_misscordinate1 %>%
+  tidygeocoder::geocode(street = Residence.Address1, city = Residence.City, state = Residence.State, postalcode = Residence.Zip,
+          method = 'census', lat=ResidenceLatitude, long=ResidenceLongitude) %>%
+  tidygeocoder::geocode(street = Injury.Address1, city = Injury.City, state = Injury.State, postalcode = Injury.Zip,
+          method = 'census', full_results = TRUE, lat=InjuryLatitude, long=InjuryLongitude) %>%
+  tidygeocoder::geocode(street = Death.Address1, city = Death.City, state = Death.State, postalcode = Death.Zip,
+          method = 'census', lat=DeathLatitude, long=DeathLongitude)
+sum(is.na(ocme_geocode2$InjuryLatitude))
+sum(is.na(ocme_geocode2$ResidenceLongitude))
+sum(is.na(ocme_geocode2$DeathLongitude))
+
+subset(ocme_geocode2, is.na(ocme_geocode2$InjuryLatitude))
+
+```
+
